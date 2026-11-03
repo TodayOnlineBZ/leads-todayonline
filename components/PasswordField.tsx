@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { passwordMessage } from "@/lib/password";
 
 type Props = {
   id: string;
@@ -7,10 +8,12 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   hint?: string;
+  checkRules?: boolean;
 };
 
-export default function PasswordField({ id, label, value, onChange, hint }: Props) {
+export default function PasswordField({ id, label, value, onChange, hint, checkRules = false }: Props) {
   const [visible, setVisible] = useState(false);
+  const problem = checkRules && value ? passwordMessage(value) : "";
   return (
     <div className="q">
       <label htmlFor={id}>{label}</label>
@@ -25,6 +28,7 @@ export default function PasswordField({ id, label, value, onChange, hint }: Prop
         </button>
       </div>
       {hint && <p className="hint">{hint}</p>}
+      {problem && <p className="field-error" role="status">{problem}</p>}
     </div>
   );
 }

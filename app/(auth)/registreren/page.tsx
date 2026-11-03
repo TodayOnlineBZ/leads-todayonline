@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import PasswordField from "@/components/PasswordField";
 import Turnstile from "@/components/Turnstile";
 import { turnstileSiteKey } from "@/lib/config";
+import { passwordMessage } from "@/lib/password";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
@@ -20,7 +21,8 @@ export default function SignupPage() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setError("Vul je naam in."); return; }
-    if (password.length < 10) { setError("Kies een wachtwoord van minstens 10 tekens."); return; }
+    const problem = passwordMessage(password);
+    if (problem) { setError(problem); return; }
     if (password !== passwordRepeat) { setError("De twee wachtwoorden zijn niet hetzelfde. Vul ze opnieuw in."); return; }
     if (turnstileSiteKey && !token) { setError("Wacht tot de beveiligingscontrole klaar is."); return; }
     setBusy(true); setError("");
@@ -53,7 +55,7 @@ export default function SignupPage() {
       <p className="hint">Na het aanmaken bevestig je je e-mailadres. Daarna activeert Bart je account.</p>
       <div className="q"><label htmlFor="name">Naam</label><input id="name" autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} /></div>
       <div className="q"><label htmlFor="email">E-mailadres</label><input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-      <PasswordField id="password" label="Wachtwoord" value={password} onChange={setPassword} hint="Minstens 10 tekens." />
+      <PasswordField id="password" label="Wachtwoord" value={password} onChange={setPassword} hint="Minstens 10 tekens, met 1 cijfer en 1 speciaal teken." checkRules />
       <PasswordField id="passwordRepeat" label="Herhaal wachtwoord" value={passwordRepeat} onChange={setPasswordRepeat} />
       <Turnstile onToken={setToken} resetKey={resetKey} />
       <p className={"status" + (error ? " err" : "")} role="status">{error}</p>

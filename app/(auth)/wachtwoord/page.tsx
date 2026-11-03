@@ -1,5 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import PasswordField from "@/components/PasswordField";
+import { passwordMessage } from "@/lib/password";
 import { createClient } from "@/lib/supabase/client";
 
 export default function NewPasswordPage() {
@@ -8,7 +10,8 @@ export default function NewPasswordPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (password.length < 10) { setError("Kies een wachtwoord van minstens 10 tekens."); return; }
+    const problem = passwordMessage(password);
+    if (problem) { setError(problem); return; }
     const { error: err } = await createClient().auth.updateUser({ password });
     if (err) { setError("Opslaan is niet gelukt. Vraag een nieuwe link aan of kies een sterker wachtwoord."); return; }
     window.location.href = "/";
@@ -17,7 +20,7 @@ export default function NewPasswordPage() {
   return (
     <form className="panel" onSubmit={submit}>
       <h2>Kies een wachtwoord</h2>
-      <div className="q"><label htmlFor="password">Nieuw wachtwoord</label><input id="password" type="password" autoComplete="new-password" required minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} /><p className="hint">Minstens 10 tekens.</p></div>
+      <PasswordField id="password" label="Nieuw wachtwoord" value={password} onChange={setPassword} hint="Minstens 10 tekens, met 1 cijfer en 1 speciaal teken." checkRules />
       <p className={"status" + (error ? " err" : "")} role="status">{error}</p>
       <button className="btn" type="submit">Opslaan</button>
     </form>
