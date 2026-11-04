@@ -219,3 +219,14 @@ main .inner { grid-template-columns: minmax(0, 1fr); }
 .read-value { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .read-empty { color: var(--muted); font-style: italic; }
 .lead-tabs { scroll-margin-top: 90px; }
+header.top h1 { overflow-wrap: anywhere; min-width: 0; }
+.who-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.who-name svg { flex: none; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 6px; color: var(--fg); background: var(--surface); }
+.icon-btn:hover { background: var(--tint); }
+.icon-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.settings { padding-block: 24px 48px; display: grid; gap: 20px; justify-items: start; }
+.settings-back { text-decoration: none; }
+.settings-grid { display: grid; gap: 24px; width: 100%; min-width: 0; }
+.settings-grid h2 { font: 600 22px/1.2 var(--display); margin: 0 0 12px; }
+.settings-grid .read-list { margin-top: 0; }

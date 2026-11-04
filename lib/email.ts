@@ -49,3 +49,10 @@ export function sendPendingNotification(name: string, email: string) {
     layout("Nieuw account wacht op goedkeuring", [`<strong>${escapeHtml(name)}</strong> (${escapeHtml(email)}) heeft een account aangemaakt en het e-mailadres bevestigd.`, "Keur het account goed of weiger het onder het tabblad Gebruikers."], "Naar het leadsysteem", link),
     `${name} (${email}) heeft een account aangemaakt en het e-mailadres bevestigd. Keur het account goed of weiger het onder Gebruikers: ${link}`);
 }
+
+export function sendPasswordChangedEmail(to: string) {
+  const link = `${APP_URL}/login`;
+  return send(to, "Je wachtwoord is gewijzigd",
+    layout("Je wachtwoord is gewijzigd", ["Het wachtwoord van je account voor het leadsysteem van TodayOnline is zojuist gewijzigd.", "Was jij dit niet? Neem dan direct contact op met Bart via bart@todayonline.nl."], "Inloggen", link),
+    `Het wachtwoord van je account voor het leadsysteem van TodayOnline is zojuist gewijzigd. Was jij dit niet? Neem dan direct contact op met Bart via bart@todayonline.nl.`);
+}

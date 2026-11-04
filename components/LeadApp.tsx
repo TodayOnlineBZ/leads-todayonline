@@ -215,8 +215,7 @@ export default function LeadApp({ me }: { me: Profile }) {
     <>
       <header className="top gutter"><div className="inner wide">
         <img className="brand-logo" src="/logo.png" alt="TodayOnline" width="660" height="132" />
-        <h1>Leadsysteem</h1>
-        <p>Kwalificeer prospects tijdens het bellen. Elke lead komt onder de ingelogde salesmedewerker te staan.</p>
+        <h1>Welkom, {me.name}</h1>
       </div></header>
       <div className="bar gutter"><div className="inner wide">
         <div className="tabs" role="tablist">
@@ -226,7 +225,14 @@ export default function LeadApp({ me }: { me: Profile }) {
           {master && <button className="tab" role="tab" type="button" aria-selected={view === "users"} onClick={() => go("users")}>Gebruikers{waiting ? ` (${waiting} wacht)` : ""}</button>}
           {master && <button className="tab" role="tab" type="button" aria-selected={view === "released"} onClick={() => go("released")}>Teruggezet ({releasedLeads.length})</button>}
         </div>
-        <div className="who"><span>Ingelogd als <strong>{me.name}{master ? " (master)" : ""}</strong></span>
+        <div className="who">
+          <span className="who-name">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+            <strong>{me.name}{master ? " (master)" : ""}</strong>
+          </span>
+          <a className="icon-btn" href="/instellingen" aria-label="Instellingen" title="Instellingen">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5v.2a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1h-.2a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5v-.2a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+          </a>
           <form action="/auth/signout" method="post"><button className="btn alt small" type="submit">Uitloggen</button></form>
         </div>
       </div></div>

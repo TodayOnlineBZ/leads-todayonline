@@ -24,5 +24,6 @@ export async function GET(request: NextRequest) {
     }
   }
   else if (code) failed = Boolean((await supabase.auth.exchangeCodeForSession(code)).error);
+  if (type === "email_change") return NextResponse.redirect(origin + (failed ? "/instellingen?email=fout" : "/instellingen?email=bevestigd"));
   return NextResponse.redirect(origin + (failed ? "/login?fout=link" : next));
 }

@@ -27,6 +27,7 @@ De standaardmail van Supabase werkt alleen voor eigen teamleden, en maximaal 2 b
 | Confirm signup | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/` |
 | Invite user | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/wachtwoord` |
 | Reset password | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/wachtwoord` |
+| Change Email Address | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change` |
 
 4. Vercel → **Settings → Environment Variables**: voeg `RESEND_API_KEY` toe en redeploy. Hiermee krijgt de master een melding als iemand wacht op goedkeuring, en krijgt de gebruiker een mail na goedkeuring.
 
@@ -89,6 +90,8 @@ psql -f supabase/migrations/0007_voorstellen.sql
 psql -f supabase/tests/rls_test_7.sql
 psql -f supabase/migrations/0008_definitief_voorstel.sql
 psql -f supabase/tests/rls_test_8.sql
+psql -f supabase/migrations/0009_instellingen.sql
+psql -f supabase/tests/rls_test_9.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.
