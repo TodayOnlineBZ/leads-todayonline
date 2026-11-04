@@ -177,3 +177,5 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 #viewList td .pill + .small { margin-top: 4px; }
 main .inner { grid-template-columns: minmax(0, 1fr); }
 .breakdown { min-width: 0; }
+.auth-top .inner { justify-items: center; padding-block: 32px; }
+.auth-top .brand-logo { height: 44px; }
