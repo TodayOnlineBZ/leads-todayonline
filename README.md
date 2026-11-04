@@ -83,6 +83,8 @@ psql -f supabase/migrations/0004_verkoopstatus_en_commissie.sql
 psql -f supabase/tests/rls_test_4.sql
 psql -f supabase/migrations/0005_2fa_verplicht.sql
 psql -f supabase/tests/rls_test_5.sql
+psql -f supabase/migrations/0006_commissieverdeling.sql
+psql -f supabase/tests/rls_test_6.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.

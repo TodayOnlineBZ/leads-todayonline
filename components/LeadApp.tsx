@@ -9,8 +9,9 @@ import {
 type Profile = { id: string; name: string; email: string; role: string; status: string };
 type Note = { id: string; lead_id: string; author_id: string; author_name: string; body: string; created_at: string; edited_at: string | null };
 type LeadCompany = { id: string; legal_form: string; source: string; consent: string; do_not_call: boolean; release_count: number; last_release_reason: string | null };
-type Lead = { id: string; owner_id: string; company_id: string | null; values: Values; created_at: string; updated_at: string; company: LeadCompany | null; notes: Note[]; archived_at: string | null; archived_by_name: string | null; archive_reason: string | null; archive_note: string | null; sale_status: SaleStatus; quote_amount_cents: number | null; commission_percent: number | null; commission_cents: number | null; sale_events?: SaleEvent[] };
-type SaleEvent = { id: string; old_status: string; new_status: string; old_amount_cents: number | null; new_amount_cents: number | null; changed_by_name: string; created_at: string };
+type Lead = { id: string; owner_id: string; company_id: string | null; values: Values; created_at: string; updated_at: string; company: LeadCompany | null; notes: Note[]; archived_at: string | null; archived_by_name: string | null; archive_reason: string | null; archive_note: string | null; sale_status: SaleStatus; quote_amount_cents: number | null; commission_percent: number | null; commission_cents: number | null; sale_events?: SaleEvent[]; split?: LeadSplit | null; archived_company_id?: string | null; archived_company?: { id: string; do_not_call: boolean } | null };
+type LeadSplit = { sales_percent: number; sales_cents: number; master_percent: number; master_cents: number };
+type SaleEvent = { id: string; old_status: string; new_status: string; old_amount_cents: number | null; new_amount_cents: number | null; changed_by_name: string; created_at: string; old_owner_name: string | null; new_owner_name: string | null; old_commission_cents: number | null; new_commission_cents: number | null };
 type SearchRow = { id: string; name: string; city: string; phone: string | null; website: string; legal_form: string; source: string; consent: string; do_not_call: boolean; release_count: number; last_release_reason: string | null; province: string; branch: string; lead_id: string | null; owner_id: string | null; owner_name: string | null; owner_status: string | null };
 type View = "form" | "search" | "list" | "users" | "released";
 
@@ -38,7 +39,7 @@ export default function LeadApp({ me }: { me: Profile }) {
   const nextPitchQuestion = () => setPitchQuestion((old) => old + 1 + Math.floor(Math.random() * (PITCH_QUESTIONS.length - 1)));
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*), sale_events:lead_sale_events(*)");
+    const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*), sale_events:lead_sale_events(*), split:lead_splits(sales_percent, sales_cents, master_percent, master_cents), archived_company:companies!leads_archived_company_id_fkey(id, do_not_call)");
     if (error) { setLoadError("De leads konden niet worden geladen. Ververs de pagina of probeer het later opnieuw."); setLoading(false); return; }
     setLeads((data ?? []) as unknown as Lead[]);
     if (master) {
@@ -82,7 +83,7 @@ export default function LeadApp({ me }: { me: Profile }) {
     setStatus({ text: `Opgeslagen: ${values.organisatie} (ranking ${rank}).`, error: false });
   }
   async function reassign(leadId: string, owner: string) {
-    const { error } = await supabase.from("leads").update({ owner_id: owner }).eq("id", leadId);
+    const { error } = await supabase.rpc("assign_lead", { p_lead: leadId, p_owner: owner });
     if (error) { setStatus({ text: "Toewijzen is niet gelukt.", error: true }); return false; }
     await load();
     setStatus({ text: "Lead toegewezen aan " + ownerName(owner) + ".", error: false });
@@ -128,19 +129,11 @@ export default function LeadApp({ me }: { me: Profile }) {
             {master && current && (
               <div className="owner-box">
                 <label className="lbl" htmlFor="ownerSelect">Salesmedewerker van deze lead</label>
-                <select id="ownerSelect" value={current.owner_id} onChange={(e) => { if (current.sale_status === "Offerte geaccepteerd") setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
+                <select id="ownerSelect" value={current.owner_id} onChange={(e) => { if (QUOTE_REQUIRED.includes(current.sale_status)) setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
                   {ownerRemoved(current.owner_id) && <option value={current.owner_id}>{ownerName(current.owner_id)} (verwijderd): kies een nieuwe</option>}
                   {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
-                {pendingOwner && (
-                  <div className="confirm-box" role="group" aria-label="Bevestig toewijzing">
-                    <span className="small">Deze offerte is geaccepteerd. De commissie van {formatEuro(current.commission_cents)} gaat dan naar {ownerName(pendingOwner)}. Weet je het zeker?</span>
-                    <div className="actions">
-                      <button className="btn small" type="button" onClick={() => { const owner = pendingOwner; setPendingOwner(null); void reassign(current.id, owner); }}>Bevestigen</button>
-                      <button className="btn alt small" type="button" onClick={() => setPendingOwner(null)}>Annuleren</button>
-                    </div>
-                  </div>
-                )}
+                {pendingOwner && <AssignConfirm leadId={current.id} owner={pendingOwner} ownerLabel={ownerName(pendingOwner)} onCancel={() => setPendingOwner(null)} onConfirm={() => { const owner = pendingOwner; setPendingOwner(null); void reassign(current.id, owner); }} />}
               </div>
             )}
             {current && <SalePanel key={current.id} lead={current} master={master} reload={load} />}
@@ -215,7 +208,7 @@ export default function LeadApp({ me }: { me: Profile }) {
         {view === "users" && master && (
           <UsersView me={me} profiles={profiles} leads={activeLeads} reload={load} />
         )}
-        {view === "released" && master && <ReleasedView leads={releasedLeads} ownerName={ownerName} />}
+        {view === "released" && master && <ReleasedView leads={releasedLeads} ownerName={ownerName} reload={load} />}
       </main>
     </>
   );
@@ -307,16 +300,16 @@ function Notes({ me, lead, reload }: { me: Profile; lead: Lead | null; reload: (
   );
 }
 
-type SortKey = "organisatie" | "telefoon" | "provincie" | "rank" | "status" | "quote" | "commission" | "owner" | "contactAt";
-const NEWEST_FIRST: SortKey[] = ["rank", "status", "quote", "commission", "contactAt"];
+type SortKey = "organisatie" | "provincie" | "rank" | "status" | "quote" | "commission" | "masterShare" | "owner" | "contactAt";
+const NEWEST_FIRST: SortKey[] = ["rank", "status", "quote", "commission", "masterShare", "contactAt"];
 const statusIndex = (status: string) => SALE_STATUSES.indexOf(status as SaleStatus);
 const sumCents = (list: Lead[], pick: (l: Lead) => number | null) => list.reduce((total, l) => total + Number(pick(l) ?? 0), 0);
 
-function SaleSummary({ leads, active, onSelect }: { leads: Lead[]; active: string; onSelect: (status: string) => void }) {
-  const possible = sumCents(leads.filter((l) => l.sale_status === "Offerte verstuurd"), (l) => l.commission_cents);
-  const expected = sumCents(leads.filter((l) => l.sale_status === "Offerte geaccepteerd"), (l) => l.commission_cents);
+function SaleSummary({ leads, active, onSelect, master }: { leads: Lead[]; active: string; onSelect: (status: string) => void; master: boolean }) {
+  const sent = leads.filter((l) => l.sale_status === "Offerte verstuurd");
+  const won = leads.filter((l) => l.sale_status === "Offerte geaccepteerd");
   return (
-    <section className="sale-summary" aria-label="Overzicht per verkoopstatus">
+    <section className={"sale-summary" + (master ? " for-master" : "")} aria-label="Overzicht per verkoopstatus">
       {SALE_STATUSES.map((status) => {
         const list = leads.filter((l) => l.sale_status === status);
         return (
@@ -327,8 +320,10 @@ function SaleSummary({ leads, active, onSelect }: { leads: Lead[]; active: strin
           </button>
         );
       })}
-      <div className="commission-card"><span className="sale-card-label">Mogelijke commissie</span><span className="sale-card-count">{formatEuro(possible)}</span><span className="sale-card-amount">Offertes die uitstaan</span></div>
-      <div className="commission-card won"><span className="sale-card-label">Verwachte commissie</span><span className="sale-card-count">{formatEuro(expected)}</span><span className="sale-card-amount">Geaccepteerde offertes</span></div>
+      <div className="commission-card"><span className="sale-card-label">{master ? "Mogelijke commissie sales" : "Mogelijke commissie"}</span><span className="sale-card-count">{formatEuro(sumCents(sent, (l) => l.commission_cents))}</span><span className="sale-card-amount">Offertes die uitstaan</span></div>
+      <div className="commission-card won"><span className="sale-card-label">{master ? "Verwachte commissie sales" : "Verwachte commissie"}</span><span className="sale-card-count">{formatEuro(sumCents(won, (l) => l.commission_cents))}</span><span className="sale-card-amount">Geaccepteerde offertes</span></div>
+      {master && <div className="commission-card"><span className="sale-card-label">Mogelijk aandeel master</span><span className="sale-card-count">{formatEuro(sumCents(sent, (l) => l.split?.master_cents ?? null))}</span><span className="sale-card-amount">Offertes die uitstaan</span></div>}
+      {master && <div className="commission-card won"><span className="sale-card-label">Verwacht aandeel master</span><span className="sale-card-count">{formatEuro(sumCents(won, (l) => l.split?.master_cents ?? null))}</span><span className="sale-card-amount">Geaccepteerde offertes</span></div>}
     </section>
   );
 }
@@ -340,20 +335,46 @@ function SalesBreakdown({ leads, ownerName }: { leads: Lead[]; ownerName: (id: s
     <details className="breakdown">
       <summary>Uitsplitsing per salesmedewerker</summary>
       <div className="table-box"><table>
-        <thead><tr><th className="plain">Salesmedewerker</th>{SALE_STATUSES.map((s) => <th className="plain" key={s}>{s}</th>)}<th className="plain">Mogelijke commissie</th><th className="plain">Verwachte commissie</th></tr></thead>
+        <thead><tr><th className="plain">Eigenaar</th>{SALE_STATUSES.map((s) => <th className="plain" key={s}>{s}</th>)}<th className="plain">Commissie sales</th><th className="plain">Aandeel master</th></tr></thead>
         <tbody>{owners.map((id) => {
           const own = leads.filter((l) => l.owner_id === id);
+          const sent = own.filter((l) => l.sale_status === "Offerte verstuurd"), won = own.filter((l) => l.sale_status === "Offerte geaccepteerd");
           return (
             <tr key={id}>
               <td>{ownerName(id)}</td>
               {SALE_STATUSES.map((s) => { const list = own.filter((l) => l.sale_status === s); return <td className="num" key={s}>{list.length}<span className="small">{formatEuro(sumCents(list, (l) => l.quote_amount_cents))}</span></td>; })}
-              <td className="num">{formatEuro(sumCents(own.filter((l) => l.sale_status === "Offerte verstuurd"), (l) => l.commission_cents))}</td>
-              <td className="num">{formatEuro(sumCents(own.filter((l) => l.sale_status === "Offerte geaccepteerd"), (l) => l.commission_cents))}</td>
+              <td className="num">{formatEuro(sumCents(won, (l) => l.commission_cents))}<span className="small">Verwacht</span><span className="small">{formatEuro(sumCents(sent, (l) => l.commission_cents))} mogelijk</span></td>
+              <td className="num">{formatEuro(sumCents(won, (l) => l.split?.master_cents ?? null))}<span className="small">Verwacht</span><span className="small">{formatEuro(sumCents(sent, (l) => l.split?.master_cents ?? null))} mogelijk</span></td>
             </tr>
           );
         })}</tbody>
       </table></div>
     </details>
+  );
+}
+
+function AssignConfirm({ leadId, owner, ownerLabel, onConfirm, onCancel }: { leadId: string; owner: string; ownerLabel: string; onConfirm: () => void; onCancel: () => void }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [split, setSplit] = useState<{ old_sales_cents: number | null; old_master_cents: number | null; new_sales_cents: number; new_master_cents: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc("preview_assign", { p_lead: leadId, p_owner: owner }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error || !data?.[0]) setFailed(true); else setSplit(data[0]);
+    });
+    return () => { cancelled = true; };
+  }, [supabase, leadId, owner]);
+  return (
+    <div className="confirm-box" role="group" aria-label={"Bevestig toewijzing aan " + ownerLabel}>
+      <span className="small">Toewijzen aan {ownerLabel} verandert de verdeling:</span>
+      {split && <span className="small">Commissie sales: {formatEuro(split.old_sales_cents)} → {formatEuro(split.new_sales_cents)}. Aandeel master: {formatEuro(split.old_master_cents)} → {formatEuro(split.new_master_cents)}.</span>}
+      {failed && <span className="small">De nieuwe verdeling kon niet worden berekend. Ververs de pagina en probeer het opnieuw.</span>}
+      <div className="actions">
+        <button className="btn small" type="button" disabled={!split} onClick={onConfirm}>Bevestigen</button>
+        <button className="btn alt small" type="button" onClick={onCancel}>Annuleren</button>
+      </div>
+    </div>
   );
 }
 
@@ -392,13 +413,14 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
       <dl className="sale-facts">
         <div><dt>Status</dt><dd><span className={"pill " + SALE_CLASS[lead.sale_status]}>{lead.sale_status}</span></dd></div>
         <div><dt>Offertebedrag, excl. btw</dt><dd>{formatEuro(lead.quote_amount_cents)}</dd></div>
-        <div><dt>{commissionLabel(lead.sale_status)}</dt><dd>{lead.commission_cents == null ? "-" : formatEuro(lead.commission_cents) + " (" + Number(lead.commission_percent) + "%)"}</dd></div>
+        <div><dt>{master ? commissionLabel(lead.sale_status) + " sales" : commissionLabel(lead.sale_status)}</dt><dd>{lead.commission_cents == null ? "-" : formatEuro(lead.commission_cents) + " (" + Number(lead.commission_percent) + "%)"}</dd></div>
+        {master && <div><dt>Aandeel master</dt><dd>{lead.split ? formatEuro(lead.split.master_cents) + " (" + Number(lead.split.master_percent) + "%)" : "-"}</dd></div>}
       </dl>
       {master && events.length > 0 && (
         <details className="breakdown">
           <summary>Geschiedenis ({events.length})</summary>
           <ul className="note-list">{events.map((e) => (
-            <li key={e.id}><span className="note-meta">{e.changed_by_name} · {nlDateTime(e.created_at)}</span><p className="note-text">{e.old_status} → {e.new_status}{e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}</p></li>
+            <li key={e.id}><span className="note-meta">{e.changed_by_name} · {nlDateTime(e.created_at)}</span><p className="note-text">{e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : `${e.old_status} → ${e.new_status}`}{e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}{e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}</p></li>
           ))}</ul>
         </details>
       )}
@@ -416,13 +438,14 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
   const [branch, setBranch] = useState("");
   const [saleStatus, setSaleStatus] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: number }>({ key: "rank", dir: -1 });
-  const columns: [SortKey, string][] = [["organisatie", "Bedrijf"], ["telefoon", "Telefoon"], ["provincie", "Regio en branche"], ["rank", "Ranking"], ["status", "Verkoopstatus"], ["quote", "Offertebedrag"], ["commission", "Commissie"], ...(master ? [["owner", "Salesmedewerker"] as [SortKey, string]] : []), ["contactAt", "Laatste contact"]];
+  const columns: [SortKey, string][] = [["organisatie", "Bedrijf"], ["provincie", "Regio en branche"], ["rank", "Ranking"], ["status", "Verkoopstatus"], ["quote", "Offertebedrag"], ["commission", master ? "Commissie sales" : "Commissie"], ...(master ? [["masterShare", "Aandeel master"] as [SortKey, string], ["owner", "Salesmedewerker"] as [SortKey, string]] : []), ["contactAt", "Laatste contact"]];
   const sortValue = (l: Lead): string | number => {
     switch (sort.key) {
       case "rank": return rankScore(answered(l.values));
       case "status": return statusIndex(l.sale_status);
       case "quote": return Number(l.quote_amount_cents ?? 0);
       case "commission": return Number(l.commission_cents ?? 0);
+      case "masterShare": return Number(l.split?.master_cents ?? 0);
       case "owner": return ownerName(l.owner_id).toLowerCase();
       case "contactAt": return lastNote(l)?.created_at ?? "";
       default: return (l.values[sort.key] ?? "").toLowerCase();
@@ -441,7 +464,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
   return (
     <div className="inner wide" id="viewList">
       <div className="step-head"><h2>{master ? "Alle bedrijven" : "Mijn bedrijven"}</h2><p>{master ? "Je ziet de leads van alle salesmedewerkers en kunt ze openen en bewerken." : "Je ziet alleen je eigen bedrijven en je eigen commissie."}</p></div>
-      <SaleSummary leads={scoped} active={saleStatus} onSelect={setSaleStatus} />
+      <SaleSummary leads={scoped} active={saleStatus} onSelect={setSaleStatus} master={master} />
       {master && <SalesBreakdown leads={leads} ownerName={ownerName} />}
       <div className="filters">
         <div className="q"><label htmlFor="search">Zoeken</label><input id="search" placeholder="Bedrijf, contact of telefoon" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
@@ -466,13 +489,13 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
             const n = answered(l.values), r = rankOf(n), note = lastNote(l);
             return (
               <tr key={l.id}>
-                <td><button className="link" type="button" onClick={() => onOpen(l)}>{l.values.organisatie}</button><span className="small">{l.values.contact || "Geen contactpersoon"}</span></td>
-                {l.company?.do_not_call ? <td className="blocked">Geblokkeerd</td> : <td className="num">{l.values.telefoon || "-"}</td>}
+                <td><button className="link" type="button" onClick={() => onOpen(l)}>{l.values.organisatie}</button><span className="small">{l.values.contact || "Geen contactpersoon"}</span>{l.company?.do_not_call ? <span className="small blocked">Geblokkeerd</span> : <span className="small">{l.values.telefoon || "Geen telefoon"}</span>}</td>
                 <td><span className="small">{l.values.provincie || "-"}</span><span className="small">{l.values.branche || "-"}</span></td>
                 <td><span className={"pill " + r}>{r}</span><span className="small">{n} van {TOTAL_QUESTIONS}</span></td>
                 <td><span className={"pill " + SALE_CLASS[l.sale_status]}>{l.sale_status}</span></td>
                 <td className="num">{formatEuro(l.quote_amount_cents)}</td>
                 <td className="num">{formatEuro(l.commission_cents)}{l.commission_cents != null && <span className="small">{l.sale_status === "Offerte verstuurd" ? "Mogelijk" : "Verwacht"}</span>}</td>
+                {master && <td className="num">{formatEuro(l.split?.master_cents)}{l.split && <span className="small">{l.sale_status === "Offerte verstuurd" ? "Mogelijk" : "Verwacht"}</span>}</td>}
                 {master && <td className={ownerRemoved(l.owner_id) ? "removed" : ""}>{ownerName(l.owner_id)}{ownerRemoved(l.owner_id) ? " (verwijderd)" : ""}</td>}
                 <td className="last-note">{note ? <><span className="small">{nlDate(note.created_at)}</span><span>{note.body.length > 60 ? note.body.slice(0, 60).trim() + "..." : note.body}</span></> : "-"}<span className="small">Gewijzigd {nlDate(l.updated_at)}</span></td>
                 <td><div className="row-actions compact">
@@ -549,7 +572,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
   }
   async function assign(row: SearchRow, owner: string) {
     if (!row.lead_id) return;
-    const { error } = await supabase.from("leads").update({ owner_id: owner }).eq("id", row.lead_id);
+    const { error } = await supabase.rpc("assign_lead", { p_lead: row.lead_id, p_owner: owner });
     setMessage(error ? { text: "Toewijzen is niet gelukt.", error: true } : { text: row.name + " is opnieuw toegewezen.", error: false });
     await fetchRows(); await reload();
   }
@@ -593,24 +616,16 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                     {taken && master && (
                       <>
                         <label className="small" htmlFor={"assign-" + c.id}>Toewijzen aan</label>
-                        <select id={"assign-" + c.id} value={c.owner_id ?? ""} onChange={(e) => { if (ownLead?.sale_status === "Offerte geaccepteerd") setPendingAssign({ id: c.id, owner: e.target.value }); else void assign(c, e.target.value); }}>
+                        <select id={"assign-" + c.id} value={c.owner_id ?? ""} onChange={(e) => { if (ownLead && QUOTE_REQUIRED.includes(ownLead.sale_status)) setPendingAssign({ id: c.id, owner: e.target.value }); else void assign(c, e.target.value); }}>
                           {c.owner_status === "removed" && <option value={c.owner_id ?? ""}>{c.owner_name} (verwijderd)</option>}
                           {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
-                        {pendingAssign?.id === c.id && (
-                          <div className="confirm-box" role="group" aria-label={"Bevestig toewijzing van " + c.name}>
-                            <span className="small">Deze offerte is geaccepteerd. De commissie gaat mee naar {activeUsers.find((u) => u.id === pendingAssign.owner)?.name}.</span>
-                            <div className="actions">
-                              <button className="btn small" type="button" onClick={() => { const owner = pendingAssign.owner; setPendingAssign(null); void assign(c, owner); }}>Bevestigen</button>
-                              <button className="btn alt small" type="button" onClick={() => setPendingAssign(null)}>Annuleren</button>
-                            </div>
-                          </div>
-                        )}
+                        {pendingAssign?.id === c.id && c.lead_id && <AssignConfirm leadId={c.lead_id} owner={pendingAssign.owner} ownerLabel={activeUsers.find((u) => u.id === pendingAssign.owner)?.name ?? "deze gebruiker"} onCancel={() => setPendingAssign(null)} onConfirm={() => { const owner = pendingAssign.owner; setPendingAssign(null); void assign(c, owner); }} />}
                       </>
                     )}
-                    {!c.do_not_call && (!taken || mine || master) && (confirmDnc === c.id ? (
+                    {!c.do_not_call && master && (confirmDnc === c.id ? (
                       <div className="confirm-box" role="group" aria-label={"Bevestig niet meer bellen voor " + c.name}>
-                        <span className="small">Weet je het zeker? {master ? "Je kunt dit later herstellen." : "Alleen de master kan dit herstellen."}</span>
+                        <span className="small">Weet je het zeker? Je kunt dit later herstellen.</span>
                         <div className="actions">
                           <button className="btn small" type="button" onClick={() => void setDnc(c, true)}>Bevestigen</button>
                           <button className="btn alt small" type="button" onClick={() => setConfirmDnc(null)}>Annuleren</button>
@@ -665,20 +680,34 @@ function ReleasePanel({ lead, onCancel, onDone, beforeRelease }: { lead: Lead; o
   );
 }
 
-function ReleasedView({ leads, ownerName }: { leads: Lead[]; ownerName: (id: string) => string }) {
+function ReleasedView({ leads, ownerName, reload }: { leads: Lead[]; ownerName: (id: string) => string; reload: () => Promise<void> }) {
+  const supabase = useMemo(() => createClient(), []);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [confirmDnc, setConfirmDnc] = useState<string | null>(null);
+  const [message, setMessage] = useState({ text: "", error: false });
+  async function blockCompany(lead: Lead) {
+    setConfirmDnc(null);
+    const { error } = await supabase.rpc("set_do_not_call", { p_company: lead.archived_company_id, p_value: true });
+    setMessage(error ? { text: "Deze status kon niet worden gewijzigd.", error: true } : { text: lead.values.organisatie + " staat nu op Niet meer bellen.", error: false });
+    await reload();
+  }
+  const needsReview = (l: Lead) => l.archive_reason === "Geen interesse" || l.archive_reason === "Anders";
   const list = [...leads].sort((a, b) => (b.archived_at ?? "").localeCompare(a.archived_at ?? ""));
   const open = list.find((l) => l.id === openId);
   return (
     <div className="inner wide">
-      <div className="step-head"><h2>Teruggezet</h2><p>Alleen zichtbaar met de master-inlog. Deze gesprekken zijn bewaard en kunnen niet meer worden gewijzigd.</p></div>
+      <div className="step-head"><h2>Teruggezet</h2><p>Alleen zichtbaar met de master-inlog. Deze gesprekken zijn bewaard en kunnen niet meer worden gewijzigd. Bij &quot;Geen interesse&quot; en &quot;Anders&quot; beoordeel jij of het bedrijf nog gebeld mag worden.</p></div>
+      {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
       <div className="table-box"><table>
         <thead><tr>{["Bedrijfsnaam", "Gebeld door", "Verkoopstatus", "Offerte", "Commissie", "Reden", "Toelichting", "Teruggezet door", "Datum", ""].map((h) => <th className="plain" key={h}>{h}</th>)}</tr></thead>
         <tbody>{list.map((l) => (
           <tr key={l.id}>
-            <td>{l.values.organisatie}</td><td>{ownerName(l.owner_id)}</td><td><span className={"pill " + SALE_CLASS[l.sale_status]}>{l.sale_status}</span></td><td className="num">{formatEuro(l.quote_amount_cents)}</td><td className="num">{formatEuro(l.commission_cents)}</td><td>{l.archive_reason}</td><td>{l.archive_note || "-"}</td><td>{l.archived_by_name}</td>
+            <td>{l.values.organisatie}{needsReview(l) && !l.archived_company?.do_not_call && l.archived_company && <span className="pill taken review-pill">Beoordelen</span>}</td><td>{ownerName(l.owner_id)}</td><td><span className={"pill " + SALE_CLASS[l.sale_status]}>{l.sale_status}</span></td><td className="num">{formatEuro(l.quote_amount_cents)}</td><td className="num">{formatEuro(l.commission_cents)}</td><td>{l.archive_reason}</td><td>{l.archive_note || "-"}</td><td>{l.archived_by_name}</td>
             <td className="num">{l.archived_at ? nlDateTime(l.archived_at) : "-"}</td>
-            <td><button className="btn alt small" type="button" onClick={() => setOpenId(openId === l.id ? null : l.id)}>{openId === l.id ? "Sluiten" : "Bekijken"}</button></td>
+            <td><button className="btn alt small" type="button" onClick={() => setOpenId(openId === l.id ? null : l.id)}>{openId === l.id ? "Sluiten" : "Bekijken"}</button>
+              {l.archived_company?.do_not_call && <span className="pill dnc review-pill">Niet meer bellen</span>}
+              {needsReview(l) && l.archived_company && !l.archived_company.do_not_call && <button className="link review-link" type="button" onClick={() => { if (confirmDnc === l.id) void blockCompany(l); else setConfirmDnc(l.id); }}>{confirmDnc === l.id ? "Klik nogmaals om te bevestigen" : "Zet op niet meer bellen"}</button>}
+            </td>
           </tr>
         ))}</tbody>
       </table>
