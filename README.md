@@ -67,6 +67,8 @@ psql -f supabase/tests/rls_test.sql
 psql -f supabase/tests/rls_test_2.sql
 psql -f supabase/migrations/0003_filters_naam_rechtsvorm.sql
 psql -f supabase/tests/rls_test_3.sql
+psql -f supabase/migrations/0004_verkoopstatus_en_commissie.sql
+psql -f supabase/tests/rls_test_4.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.

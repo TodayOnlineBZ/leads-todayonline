@@ -2,14 +2,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
-  answered, BRANCHES, buildPitch, buildPrompt, PITCH_QUESTIONS, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
-  WARNING, type CsvRow, type Values,
+  answered, BRANCHES, centsToInput, commissionLabel, formatEuro, parseEuroToCents, QUOTE_REQUIRED, SALE_CLASS, SALE_STATUSES, buildPitch, buildPrompt, PITCH_QUESTIONS, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
+  WARNING, type CsvRow, type SaleStatus, type Values,
 } from "@/lib/domain";
 
 type Profile = { id: string; name: string; email: string; role: string; status: string };
 type Note = { id: string; lead_id: string; author_id: string; author_name: string; body: string; created_at: string; edited_at: string | null };
 type LeadCompany = { id: string; legal_form: string; source: string; consent: string; do_not_call: boolean; release_count: number; last_release_reason: string | null };
-type Lead = { id: string; owner_id: string; company_id: string | null; values: Values; created_at: string; updated_at: string; company: LeadCompany | null; notes: Note[]; archived_at: string | null; archived_by_name: string | null; archive_reason: string | null; archive_note: string | null };
+type Lead = { id: string; owner_id: string; company_id: string | null; values: Values; created_at: string; updated_at: string; company: LeadCompany | null; notes: Note[]; archived_at: string | null; archived_by_name: string | null; archive_reason: string | null; archive_note: string | null; sale_status: SaleStatus; quote_amount_cents: number | null; commission_percent: number | null; commission_cents: number | null; sale_events?: SaleEvent[] };
+type SaleEvent = { id: string; old_status: string; new_status: string; old_amount_cents: number | null; new_amount_cents: number | null; changed_by_name: string; created_at: string };
 type SearchRow = { id: string; name: string; city: string; phone: string | null; website: string; legal_form: string; source: string; consent: string; do_not_call: boolean; release_count: number; last_release_reason: string | null; province: string; branch: string; lead_id: string | null; owner_id: string | null; owner_name: string | null; owner_status: string | null };
 type View = "form" | "search" | "list" | "users" | "released";
 
@@ -32,11 +33,12 @@ export default function LeadApp({ me }: { me: Profile }) {
   const [promptText, setPromptText] = useState<string | null>(null);
   const [releasing, setReleasing] = useState(false);
   const [notice, setNotice] = useState("");
+  const [pendingOwner, setPendingOwner] = useState<string | null>(null);
   const [pitchQuestion, setPitchQuestion] = useState(0);
   const nextPitchQuestion = () => setPitchQuestion((old) => old + 1 + Math.floor(Math.random() * (PITCH_QUESTIONS.length - 1)));
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*)");
+    const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*), sale_events:lead_sale_events(*)");
     if (error) { setLoadError("De leads konden niet worden geladen. Ververs de pagina of probeer het later opnieuw."); setLoading(false); return; }
     setLeads((data ?? []) as unknown as Lead[]);
     if (master) {
@@ -126,12 +128,22 @@ export default function LeadApp({ me }: { me: Profile }) {
             {master && current && (
               <div className="owner-box">
                 <label className="lbl" htmlFor="ownerSelect">Salesmedewerker van deze lead</label>
-                <select id="ownerSelect" value={current.owner_id} onChange={(e) => void reassign(current.id, e.target.value)}>
+                <select id="ownerSelect" value={current.owner_id} onChange={(e) => { if (current.sale_status === "Offerte geaccepteerd") setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
                   {ownerRemoved(current.owner_id) && <option value={current.owner_id}>{ownerName(current.owner_id)} (verwijderd): kies een nieuwe</option>}
                   {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
+                {pendingOwner && (
+                  <div className="confirm-box" role="group" aria-label="Bevestig toewijzing">
+                    <span className="small">Deze offerte is geaccepteerd. De commissie van {formatEuro(current.commission_cents)} gaat dan naar {ownerName(pendingOwner)}. Weet je het zeker?</span>
+                    <div className="actions">
+                      <button className="btn small" type="button" onClick={() => { const owner = pendingOwner; setPendingOwner(null); void reassign(current.id, owner); }}>Bevestigen</button>
+                      <button className="btn alt small" type="button" onClick={() => setPendingOwner(null)}>Annuleren</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
+            {current && <SalePanel key={current.id} lead={current} master={master} reload={load} />}
             {current?.company && (
               <div className="owner-box">
                 <span className="lbl">Herkomst van dit bedrijf</span>
@@ -182,9 +194,10 @@ export default function LeadApp({ me }: { me: Profile }) {
               <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>
               {current && <button className="btn alt" type="button" onClick={() => setPromptText(buildPrompt(values))}>Exporteer als MVP-prompt</button>}
               <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
-              {current?.company_id && !releasing && <button className="btn alt" type="button" onClick={() => setReleasing(true)}>Terugzetten in de lijst</button>}
+              {current?.company_id && !releasing && !QUOTE_REQUIRED.includes(current.sale_status) && <button className="btn alt" type="button" onClick={() => setReleasing(true)}>Terugzetten in de lijst</button>}
             </div>
-            {current?.company_id && releasing && (
+            {current?.company_id && QUOTE_REQUIRED.includes(current.sale_status) && <p className="hint">Terugzetten kan niet zolang de status {current.sale_status} is. {master ? "Wijzig eerst de verkoopstatus." : "De master moet eerst de status wijzigen."}</p>}
+            {current?.company_id && releasing && !QUOTE_REQUIRED.includes(current.sale_status) && (
               <ReleasePanel lead={current} onCancel={() => setReleasing(false)} onDone={() => void afterRelease(current)}
                 beforeRelease={async () => !(await supabase.from("leads").update({ values }).eq("id", current.id)).error} />
             )}
@@ -294,9 +307,104 @@ function Notes({ me, lead, reload }: { me: Profile; lead: Lead | null; reload: (
   );
 }
 
-type SortKey = "organisatie" | "contact" | "telefoon" | "provincie" | "branche" | "count" | "rank" | "owner" | "updated" | "contactAt";
-const COLUMNS: [SortKey, string][] = [["organisatie", "Bedrijfsnaam"], ["contact", "Contactpersoon"], ["telefoon", "Telefoonnummer"], ["provincie", "Provincie"], ["branche", "Branche"], ["count", "Beantwoord"], ["rank", "Ranking"], ["owner", "Salesmedewerker"], ["updated", "Laatst gewijzigd"], ["contactAt", "Laatste contact"]];
-const NEWEST_FIRST: SortKey[] = ["rank", "count", "updated", "contactAt"];
+type SortKey = "organisatie" | "telefoon" | "provincie" | "rank" | "status" | "quote" | "commission" | "owner" | "contactAt";
+const NEWEST_FIRST: SortKey[] = ["rank", "status", "quote", "commission", "contactAt"];
+const statusIndex = (status: string) => SALE_STATUSES.indexOf(status as SaleStatus);
+const sumCents = (list: Lead[], pick: (l: Lead) => number | null) => list.reduce((total, l) => total + Number(pick(l) ?? 0), 0);
+
+function SaleSummary({ leads, active, onSelect }: { leads: Lead[]; active: string; onSelect: (status: string) => void }) {
+  const possible = sumCents(leads.filter((l) => l.sale_status === "Offerte verstuurd"), (l) => l.commission_cents);
+  const expected = sumCents(leads.filter((l) => l.sale_status === "Offerte geaccepteerd"), (l) => l.commission_cents);
+  return (
+    <section className="sale-summary" aria-label="Overzicht per verkoopstatus">
+      {SALE_STATUSES.map((status) => {
+        const list = leads.filter((l) => l.sale_status === status);
+        return (
+          <button key={status} type="button" className={"sale-card " + SALE_CLASS[status]} aria-pressed={active === status} onClick={() => onSelect(active === status ? "" : status)}>
+            <span className="sale-card-label">{status}</span>
+            <span className="sale-card-count">{list.length}</span>
+            <span className="sale-card-amount">{formatEuro(sumCents(list, (l) => l.quote_amount_cents))}</span>
+          </button>
+        );
+      })}
+      <div className="commission-card"><span className="sale-card-label">Mogelijke commissie</span><span className="sale-card-count">{formatEuro(possible)}</span><span className="sale-card-amount">Offertes die uitstaan</span></div>
+      <div className="commission-card won"><span className="sale-card-label">Verwachte commissie</span><span className="sale-card-count">{formatEuro(expected)}</span><span className="sale-card-amount">Geaccepteerde offertes</span></div>
+    </section>
+  );
+}
+
+function SalesBreakdown({ leads, ownerName }: { leads: Lead[]; ownerName: (id: string) => string }) {
+  const owners = [...new Set(leads.map((l) => l.owner_id))].sort((a, b) => ownerName(a).localeCompare(ownerName(b)));
+  if (!owners.length) return null;
+  return (
+    <details className="breakdown">
+      <summary>Uitsplitsing per salesmedewerker</summary>
+      <div className="table-box"><table>
+        <thead><tr><th className="plain">Salesmedewerker</th>{SALE_STATUSES.map((s) => <th className="plain" key={s}>{s}</th>)}<th className="plain">Mogelijke commissie</th><th className="plain">Verwachte commissie</th></tr></thead>
+        <tbody>{owners.map((id) => {
+          const own = leads.filter((l) => l.owner_id === id);
+          return (
+            <tr key={id}>
+              <td>{ownerName(id)}</td>
+              {SALE_STATUSES.map((s) => { const list = own.filter((l) => l.sale_status === s); return <td className="num" key={s}>{list.length}<span className="small">{formatEuro(sumCents(list, (l) => l.quote_amount_cents))}</span></td>; })}
+              <td className="num">{formatEuro(sumCents(own.filter((l) => l.sale_status === "Offerte verstuurd"), (l) => l.commission_cents))}</td>
+              <td className="num">{formatEuro(sumCents(own.filter((l) => l.sale_status === "Offerte geaccepteerd"), (l) => l.commission_cents))}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table></div>
+    </details>
+  );
+}
+
+function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; reload: () => Promise<void> }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [status, setStatus] = useState<string>(lead.sale_status);
+  const [amount, setAmount] = useState(centsToInput(lead.quote_amount_cents));
+  const [message, setMessage] = useState({ text: "", error: false });
+  const [busy, setBusy] = useState(false);
+  const events = [...(lead.sale_events ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+  async function save() {
+    const cents = parseEuroToCents(amount);
+    if (cents !== null && Number.isNaN(cents)) { setMessage({ text: "Vul een geldig bedrag in, bijvoorbeeld 2000 of 2.000,50.", error: true }); return; }
+    if (QUOTE_REQUIRED.includes(status) && cents === null) { setMessage({ text: "Vul eerst het offertebedrag in.", error: true }); return; }
+    setBusy(true);
+    const { error } = await supabase.rpc("set_lead_sale", { p_lead: lead.id, p_status: status, p_amount_cents: cents });
+    if (error) { setBusy(false); setMessage({ text: "Opslaan is niet gelukt. Ververs de pagina en probeer het opnieuw.", error: true }); return; }
+    await reload();
+    setBusy(false);
+    setMessage({ text: "Verkoopstatus opgeslagen.", error: false });
+  }
+  return (
+    <section className="notes sale-panel" aria-labelledby="saleTitle">
+      <h3 id="saleTitle">Verkoop</h3>
+      {master ? (
+        <>
+          <div className="fields">
+            <div className="q"><label htmlFor="saleStatus">Verkoopstatus</label><select id="saleStatus" value={status} onChange={(e) => setStatus(e.target.value)}>{SALE_STATUSES.map((v) => <option key={v}>{v}</option>)}</select></div>
+            <div className="q"><label htmlFor="saleAmount">Offertebedrag in euro&apos;s, exclusief btw</label><input id="saleAmount" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2000" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+          </div>
+          <div className="actions"><button className="btn" id="saveSale" type="button" disabled={busy} onClick={() => void save()}>{busy ? "Bezig met opslaan" : "Verkoopstatus opslaan"}</button></div>
+          {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
+        </>
+      ) : null}
+      <dl className="sale-facts">
+        <div><dt>Status</dt><dd><span className={"pill " + SALE_CLASS[lead.sale_status]}>{lead.sale_status}</span></dd></div>
+        <div><dt>Offertebedrag, excl. btw</dt><dd>{formatEuro(lead.quote_amount_cents)}</dd></div>
+        <div><dt>{commissionLabel(lead.sale_status)}</dt><dd>{lead.commission_cents == null ? "-" : formatEuro(lead.commission_cents) + " (" + Number(lead.commission_percent) + "%)"}</dd></div>
+      </dl>
+      {master && events.length > 0 && (
+        <details className="breakdown">
+          <summary>Geschiedenis ({events.length})</summary>
+          <ul className="note-list">{events.map((e) => (
+            <li key={e.id}><span className="note-meta">{e.changed_by_name} · {nlDateTime(e.created_at)}</span><p className="note-text">{e.old_status} → {e.new_status}{e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}</p></li>
+          ))}</ul>
+        </details>
+      )}
+    </section>
+  );
+}
 
 function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpen, onReleased, notice }: { me: Profile; leads: Lead[]; loading: boolean; profiles: Profile[]; ownerName: (id: string) => string; ownerRemoved: (id: string) => boolean; onOpen: (l: Lead, withPrompt?: boolean) => void; onReleased: (l: Lead) => void; notice: string }) {
   const master = me.role === "master";
@@ -306,20 +414,24 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
   const [sales, setSales] = useState("");
   const [province, setProvince] = useState("");
   const [branch, setBranch] = useState("");
+  const [saleStatus, setSaleStatus] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: number }>({ key: "rank", dir: -1 });
+  const columns: [SortKey, string][] = [["organisatie", "Bedrijf"], ["telefoon", "Telefoon"], ["provincie", "Regio en branche"], ["rank", "Ranking"], ["status", "Verkoopstatus"], ["quote", "Offertebedrag"], ["commission", "Commissie"], ...(master ? [["owner", "Salesmedewerker"] as [SortKey, string]] : []), ["contactAt", "Laatste contact"]];
   const sortValue = (l: Lead): string | number => {
     switch (sort.key) {
-      case "count": return answered(l.values);
       case "rank": return rankScore(answered(l.values));
+      case "status": return statusIndex(l.sale_status);
+      case "quote": return Number(l.quote_amount_cents ?? 0);
+      case "commission": return Number(l.commission_cents ?? 0);
       case "owner": return ownerName(l.owner_id).toLowerCase();
-      case "updated": return l.updated_at;
       case "contactAt": return lastNote(l)?.created_at ?? "";
       default: return (l.values[sort.key] ?? "").toLowerCase();
     }
   };
   const q = query.trim().toLowerCase();
-  const list = leads
-    .filter((l) => !sales || l.owner_id === sales)
+  const scoped = leads.filter((l) => !sales || l.owner_id === sales);
+  const list = scoped
+    .filter((l) => !saleStatus || l.sale_status === saleStatus)
     .filter((l) => !province || l.values.provincie === province)
     .filter((l) => !branch || l.values.branche === branch)
     .filter((l) => !q || ["organisatie", "contact", "telefoon"].some((k) => (l.values[k] ?? "").toLowerCase().includes(q)))
@@ -328,10 +440,13 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
 
   return (
     <div className="inner wide" id="viewList">
-      <div className="step-head"><h2>{master ? "Alle bedrijven" : "Mijn bedrijven"}</h2><p>{master ? "Je ziet de leads van alle salesmedewerkers en kunt ze openen en bewerken." : "Je ziet alleen de bedrijven die je zelf hebt opgeslagen."}</p></div>
+      <div className="step-head"><h2>{master ? "Alle bedrijven" : "Mijn bedrijven"}</h2><p>{master ? "Je ziet de leads van alle salesmedewerkers en kunt ze openen en bewerken." : "Je ziet alleen je eigen bedrijven en je eigen commissie."}</p></div>
+      <SaleSummary leads={scoped} active={saleStatus} onSelect={setSaleStatus} />
+      {master && <SalesBreakdown leads={leads} ownerName={ownerName} />}
       <div className="filters">
         <div className="q"><label htmlFor="search">Zoeken</label><input id="search" placeholder="Bedrijf, contact of telefoon" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
         {master && <div className="q"><label htmlFor="filterSales">Salesmedewerker</label><select id="filterSales" value={sales} onChange={(e) => setSales(e.target.value)}><option value="">Alle salesmedewerkers</option>{salesOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
+        <div className="q"><label htmlFor="filterSale">Verkoopstatus</label><select id="filterSale" value={saleStatus} onChange={(e) => setSaleStatus(e.target.value)}><option value="">Alle statussen</option>{SALE_STATUSES.map((v) => <option key={v}>{v}</option>)}</select></div>
         <div className="q"><label htmlFor="filterProv">Provincie</label><select id="filterProv" value={province} onChange={(e) => setProvince(e.target.value)}><option value="">Alle provincies</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
         <div className="q"><label htmlFor="filterBranch">Branche</label><select id="filterBranch" value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">Alle branches</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
       </div>
@@ -339,7 +454,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
       {releaseLead && <ReleasePanel lead={releaseLead} onCancel={() => setReleaseId(null)} onDone={() => { setReleaseId(null); onReleased(releaseLead); }} />}
       <div className="table-box"><table>
         <thead><tr>
-          {COLUMNS.map(([key, label]) => (
+          {columns.map(([key, label]) => (
             <th key={key} aria-sort={sort.key === key ? (sort.dir > 0 ? "ascending" : "descending") : undefined}>
               <button type="button" onClick={() => setSort(sort.key === key ? { key, dir: -sort.dir } : { key, dir: NEWEST_FIRST.includes(key) ? -1 : 1 })}>{label}{sort.key === key ? (sort.dir > 0 ? " ↑" : " ↓") : ""}</button>
             </th>
@@ -351,26 +466,25 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
             const n = answered(l.values), r = rankOf(n), note = lastNote(l);
             return (
               <tr key={l.id}>
-                <td><button className="link" type="button" onClick={() => onOpen(l)}>{l.values.organisatie}</button></td>
-                <td>{l.values.contact || "-"}</td>
+                <td><button className="link" type="button" onClick={() => onOpen(l)}>{l.values.organisatie}</button><span className="small">{l.values.contact || "Geen contactpersoon"}</span></td>
                 {l.company?.do_not_call ? <td className="blocked">Geblokkeerd</td> : <td className="num">{l.values.telefoon || "-"}</td>}
-                <td>{l.values.provincie || "-"}</td>
-                <td>{l.values.branche || "-"}</td>
-                <td className="num">{n} van {TOTAL_QUESTIONS}</td>
-                <td><span className={"pill " + r}>{r}</span></td>
-                <td className={ownerRemoved(l.owner_id) ? "removed" : ""}>{ownerName(l.owner_id)}{ownerRemoved(l.owner_id) ? " (verwijderd)" : ""}</td>
-                <td className="num">{nlDate(l.updated_at)}</td>
-                <td className="last-note">{note ? <><span className="small">{nlDate(note.created_at)}</span><span>{note.body.length > 60 ? note.body.slice(0, 60).trim() + "..." : note.body}</span></> : "-"}</td>
+                <td><span className="small">{l.values.provincie || "-"}</span><span className="small">{l.values.branche || "-"}</span></td>
+                <td><span className={"pill " + r}>{r}</span><span className="small">{n} van {TOTAL_QUESTIONS}</span></td>
+                <td><span className={"pill " + SALE_CLASS[l.sale_status]}>{l.sale_status}</span></td>
+                <td className="num">{formatEuro(l.quote_amount_cents)}</td>
+                <td className="num">{formatEuro(l.commission_cents)}{l.commission_cents != null && <span className="small">{l.sale_status === "Offerte verstuurd" ? "Mogelijk" : "Verwacht"}</span>}</td>
+                {master && <td className={ownerRemoved(l.owner_id) ? "removed" : ""}>{ownerName(l.owner_id)}{ownerRemoved(l.owner_id) ? " (verwijderd)" : ""}</td>}
+                <td className="last-note">{note ? <><span className="small">{nlDate(note.created_at)}</span><span>{note.body.length > 60 ? note.body.slice(0, 60).trim() + "..." : note.body}</span></> : "-"}<span className="small">Gewijzigd {nlDate(l.updated_at)}</span></td>
                 <td><div className="row-actions compact">
                   <button className="btn alt small" type="button" onClick={() => onOpen(l, true)}>MVP-prompt</button>
-                  {l.company_id && <button className="btn alt small" type="button" onClick={() => { setReleaseId(l.id); window.scrollTo(0, 0); }}>Terugzetten in de lijst</button>}
+                  {l.company_id && !QUOTE_REQUIRED.includes(l.sale_status) && <button className="btn alt small" type="button" onClick={() => { setReleaseId(l.id); window.scrollTo(0, 0); }}>Terugzetten in de lijst</button>}
                 </div></td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {list.length === 0 && <p className="empty">{loading ? "Bezig met laden." : leads.length ? "Geen bedrijven gevonden. Pas je zoekopdracht aan." : "Nog geen bedrijven. Neem er een in behandeling via Bedrijven zoeken of sla een nieuw gesprek op."}</p>}
+      {list.length === 0 && <p className="empty">{loading ? "Bezig met laden." : leads.length ? "Geen bedrijven gevonden. Pas je filters aan." : "Nog geen bedrijven. Neem er een in behandeling via Bedrijven zoeken of sla een nieuw gesprek op."}</p>}
       </div>
     </div>
   );
@@ -386,6 +500,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
   const [legalForm, setLegalForm] = useState("");
   const [legalForms, setLegalForms] = useState<string[]>([]);
   const [confirmDnc, setConfirmDnc] = useState<string | null>(null);
+  const [pendingAssign, setPendingAssign] = useState<{ id: string; owner: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [rows, setRows] = useState<SearchRow[] | null>(null);
   const [message, setMessage] = useState({ text: "", error: false });
@@ -479,10 +594,19 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                     {taken && master && (
                       <>
                         <label className="small" htmlFor={"assign-" + c.id}>Toewijzen aan</label>
-                        <select id={"assign-" + c.id} value={c.owner_id ?? ""} onChange={(e) => void assign(c, e.target.value)}>
+                        <select id={"assign-" + c.id} value={c.owner_id ?? ""} onChange={(e) => { if (ownLead?.sale_status === "Offerte geaccepteerd") setPendingAssign({ id: c.id, owner: e.target.value }); else void assign(c, e.target.value); }}>
                           {c.owner_status === "removed" && <option value={c.owner_id ?? ""}>{c.owner_name} (verwijderd)</option>}
                           {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                         </select>
+                        {pendingAssign?.id === c.id && (
+                          <div className="confirm-box" role="group" aria-label={"Bevestig toewijzing van " + c.name}>
+                            <span className="small">Deze offerte is geaccepteerd. De commissie gaat mee naar {activeUsers.find((u) => u.id === pendingAssign.owner)?.name}.</span>
+                            <div className="actions">
+                              <button className="btn small" type="button" onClick={() => { const owner = pendingAssign.owner; setPendingAssign(null); void assign(c, owner); }}>Bevestigen</button>
+                              <button className="btn alt small" type="button" onClick={() => setPendingAssign(null)}>Annuleren</button>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                     {!c.do_not_call && (!taken || mine || master) && (confirmDnc === c.id ? (
@@ -550,10 +674,10 @@ function ReleasedView({ leads, ownerName }: { leads: Lead[]; ownerName: (id: str
     <div className="inner wide">
       <div className="step-head"><h2>Teruggezet</h2><p>Alleen zichtbaar met de master-inlog. Deze gesprekken zijn bewaard en kunnen niet meer worden gewijzigd.</p></div>
       <div className="table-box"><table>
-        <thead><tr>{["Bedrijfsnaam", "Gebeld door", "Reden", "Toelichting", "Teruggezet door", "Datum", ""].map((h) => <th className="plain" key={h}>{h}</th>)}</tr></thead>
+        <thead><tr>{["Bedrijfsnaam", "Gebeld door", "Verkoopstatus", "Offerte", "Commissie", "Reden", "Toelichting", "Teruggezet door", "Datum", ""].map((h) => <th className="plain" key={h}>{h}</th>)}</tr></thead>
         <tbody>{list.map((l) => (
           <tr key={l.id}>
-            <td>{l.values.organisatie}</td><td>{ownerName(l.owner_id)}</td><td>{l.archive_reason}</td><td>{l.archive_note || "-"}</td><td>{l.archived_by_name}</td>
+            <td>{l.values.organisatie}</td><td>{ownerName(l.owner_id)}</td><td><span className={"pill " + SALE_CLASS[l.sale_status]}>{l.sale_status}</span></td><td className="num">{formatEuro(l.quote_amount_cents)}</td><td className="num">{formatEuro(l.commission_cents)}</td><td>{l.archive_reason}</td><td>{l.archive_note || "-"}</td><td>{l.archived_by_name}</td>
             <td className="num">{l.archived_at ? nlDateTime(l.archived_at) : "-"}</td>
             <td><button className="btn alt small" type="button" onClick={() => setOpenId(openId === l.id ? null : l.id)}>{openId === l.id ? "Sluiten" : "Bekijken"}</button></td>
           </tr>

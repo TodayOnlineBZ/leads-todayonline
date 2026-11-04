@@ -146,3 +146,34 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .btn.alt.small { color: var(--fg); }
 .confirm-box { display: grid; gap: 8px; }
 .brand-logo { display: block; width: auto; height: 32px; max-width: 100%; }
+
+:root { --info-bg: #dbe8f5; --info-fg: #17476f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --info-bg: #17344c; --info-fg: #a9d0f2; } }
+:root[data-theme="dark"] { --info-bg: #17344c; --info-fg: #a9d0f2; }
+.pill.sale-none { background: var(--low-bg); color: var(--low-fg); }
+.pill.sale-contact { background: var(--info-bg); color: var(--info-fg); }
+.pill.sale-sent { background: var(--mid-bg); color: var(--mid-fg); }
+.pill.sale-won { background: var(--high-bg); color: var(--high-fg); }
+.pill.sale-lost { background: var(--low-bg); color: var(--error); }
+.sale-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.sale-card, .commission-card { display: grid; gap: 2px; align-content: start; text-align: left; font-family: var(--body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--low-fg); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.sale-card { cursor: pointer; }
+.sale-card:hover { border-color: var(--orange); }
+.sale-card[aria-pressed="true"] { outline: 2px solid var(--orange); outline-offset: 1px; }
+.sale-card.sale-contact { border-top-color: var(--info-fg); }
+.sale-card.sale-sent { border-top-color: var(--mid-fg); }
+.sale-card.sale-won, .commission-card.won { border-top-color: var(--high-fg); }
+.sale-card.sale-lost { border-top-color: var(--error); }
+.commission-card { background: var(--tint); }
+.sale-card-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.sale-card-count { font: 600 26px/1.2 var(--display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sale-card-amount { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.breakdown summary { cursor: pointer; font-weight: 600; padding-block: 4px; }
+.breakdown .table-box, .breakdown .note-list { margin-top: 10px; }
+.sale-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 0; }
+.sale-facts dt { font-size: 13px; color: var(--muted); }
+.sale-facts dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+#viewList td .small { margin-top: 2px; }
+#viewList td .pill + .small { margin-top: 4px; }
+main .inner { grid-template-columns: minmax(0, 1fr); }
+.breakdown { min-width: 0; }

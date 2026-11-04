@@ -170,3 +170,27 @@ export function buildPitch(values: Values, questionIndex: number) {
   const question = PITCH_QUESTIONS[((questionIndex % PITCH_QUESTIONS.length) + PITCH_QUESTIONS.length) % PITCH_QUESTIONS.length];
   return `Wij focussen ons op het bouwen van websites in de ${branch} en dat doen we enkel in de regio ${province}. Daarom was ik benieuwd: ${question}`;
 }
+
+export const SALE_STATUSES = ["Nog geen contact", "Contact gemaakt", "Offerte verstuurd", "Offerte geaccepteerd", "Afgewezen"] as const;
+export type SaleStatus = (typeof SALE_STATUSES)[number];
+export const SALE_CLASS: Record<SaleStatus, string> = {
+  "Nog geen contact": "sale-none", "Contact gemaakt": "sale-contact", "Offerte verstuurd": "sale-sent",
+  "Offerte geaccepteerd": "sale-won", Afgewezen: "sale-lost",
+};
+export const QUOTE_REQUIRED: readonly string[] = ["Offerte verstuurd", "Offerte geaccepteerd"];
+export const commissionLabel = (status: string) =>
+  status === "Offerte verstuurd" ? "Mogelijke commissie" : status === "Offerte geaccepteerd" ? "Verwachte commissie" : "Geen commissie";
+
+const euroFormat = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" });
+export const formatEuro = (cents: number | null | undefined) => (cents == null ? "-" : euroFormat.format(Number(cents) / 100));
+export const centsToInput = (cents: number | null | undefined) => (cents == null ? "" : (Number(cents) / 100).toFixed(2).replace(".", ",").replace(/,00$/, ""));
+
+// Leest bedragen als 2000, 2.000, 2000,50 of 2.000,50. Geeft null bij leeg en NaN bij ongeldig.
+export function parseEuroToCents(input: string): number | null {
+  const text = input.replace(/[€\s]/g, "");
+  if (!text) return null;
+  if (!/^(\d{1,3}(\.\d{3})+|\d+)(,\d{1,2})?$/.test(text)) return NaN;
+  const [whole, fraction = ""] = text.replace(/\./g, "").split(",");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : NaN;
+}
