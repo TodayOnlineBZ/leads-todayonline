@@ -20,7 +20,8 @@ async function callClaude(body: Record<string, unknown>, timeoutMs: number) {
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: MODEL, ...body }),
+    // Denkwerk telt mee voor max_tokens en de kosten; dit is de laagste stand die dit model toestaat.
+    body: JSON.stringify({ model: MODEL, thinking: { type: "between_tools" }, output_config: { effort: "medium" }, ...body }),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
@@ -40,6 +41,8 @@ Regels:
 - Alle CSS en JavaScript staan in het bestand. Webfonts mogen via Google Fonts.
 - Gebruik geen externe afbeeldingen. Maak beeldvlakken met CSS en label ze duidelijk als plaatshouder.
 - De pagina is modern, responsive en volledig in het Nederlands.
+- Maak alleen de homepage, ook als de briefing meer pagina's noemt. Hooguit zes secties.
+- Houd de code compact: maximaal ongeveer 30 kB, geen commentaar, herbruikbare CSS-klassen, weinig JavaScript en geen uitgebreide SVG-illustraties. Het bestand moet in één antwoord volledig af zijn.
 - Verzin geen feiten, cijfers, klantquotes, projecten, adressen of contactgegevens. Gebruik een duidelijk gemarkeerde plaatshouder bij onbekende informatie.
 - Formulieren en knoppen hoeven niets te versturen.
 - Onderzoek op het web is hier niet mogelijk: noem geen concurrenten en doe geen uitspraken over hen.

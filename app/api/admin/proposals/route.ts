@@ -11,6 +11,15 @@ const VALID_DAYS = 30;
 const DISCOUNT_PERCENT = 10;
 const slugify = (text: string) => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "voorstel";
 
+async function step<T>(name: string, run: () => Promise<T>) {
+  try {
+    return await run();
+  } catch (e) {
+    const timeout = e instanceof Error && e.name === "TimeoutError";
+    throw new Error(`${name}: ${timeout ? "Claude deed er te lang over." : e instanceof Error ? e.message : "onbekende fout."}`);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const master = await requireMaster();
   if (!master) return NextResponse.json({ error: "Geen toegang." }, { status: 403 });
@@ -39,8 +48,8 @@ export async function POST(request: NextRequest) {
   after(async () => {
     try {
       // Eerst de korte tekst: mislukt die, dan is er geen tegoed aan de dure MVP besteed.
-      const doc = await generateDocument(values);
-      const mvp = await generateMvp(values);
+      const doc = await step("Uitwerking", () => generateDocument(values));
+      const mvp = await step("MVP", () => generateMvp(values));
       await admin.from("proposals").update({
         status: "ready", mvp_html: mvp.html, document: doc.document, error: null,
         input_tokens: (mvp.usage.input_tokens ?? 0) + (doc.usage.input_tokens ?? 0),
