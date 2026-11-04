@@ -53,13 +53,18 @@ where email = 'bart@todayonline.nl';
 ### 7. Testen vóór echte gegevens
 Maak twee testaccounts, keur ze goed en controleer dat ze elkaars leads niet kunnen openen.
 
+## Database bijwerken
+Voer nieuwe migraties uit `supabase/migrations/` één keer uit in de SQL Editor, op volgorde van hun nummer. Doe dat vóór je de bijbehorende code live zet.
+
 ## Rechten lokaal testen
 
 ```sh
 # In een lege lokale PostgreSQL-database:
 psql -f supabase/tests/stub_supabase.sql
 psql -f supabase/migrations/0001_leadsysteem.sql
+psql -f supabase/migrations/0002_terugzetten_en_selectie.sql
 psql -f supabase/tests/rls_test.sql
+psql -f supabase/tests/rls_test_2.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.
