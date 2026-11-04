@@ -142,3 +142,5 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .release-panel h3 { font-size: 20px; font-weight: 600; }
 .release-panel p { margin: 0; }
 .row-actions.compact { min-width: 150px; }
+.btn.small { color: var(--on-green); display: inline-block; }
+.btn.alt.small { color: var(--fg); }
