@@ -143,3 +143,30 @@ export function readCompanyCsv(text: string): { rows: CsvRow[]; problem?: string
       consent: /^(ja|toestemming vastgelegd)$/i.test(o.toestemming) ? CONSENT_OK : o.toestemming, error };
   }) };
 }
+
+// Hoe een branche klinkt na "websites in de ...".
+const BRANCH_PHRASES: Record<string, string> = {
+  Accountancy: "accountancy", Advocatuur: "advocatuur", Architectuur: "architectuur", Autobedrijven: "autobranche",
+  Bakkerijen: "bakkerijbranche", Beveiliging: "beveiligingsbranche", Bouw: "bouw", Fysiotherapie: "fysiotherapie",
+  Groothandel: "groothandel", Horeca: "horeca", Hoveniers: "hoveniersbranche", Installatietechniek: "installatietechniek",
+  "IT-dienstverlening": "IT-dienstverlening", "Kappers en beauty": "kappers- en beautybranche", Logistiek: "logistiek",
+  Makelaars: "makelaardij", "Marketing en communicatie": "marketing en communicatie", "Metaal en machinebouw": "metaal en machinebouw",
+  Notariaat: "notariaat", Retail: "retail", Schoonmaak: "schoonmaakbranche", "Sport en fitness": "sport- en fitnessbranche",
+  Tandartsen: "tandheelkunde", Uitzendbureaus: "uitzendbranche", Verzekeraars: "verzekeringsbranche",
+};
+
+// Alleen vragen uit het begin van de funnel: over de organisatie, nog niet over de website of prijs.
+export const PITCH_QUESTIONS = [
+  "wat doet jullie organisatie precies, en voor wie?",
+  "wie is jullie ideale klant of doelgroep, en wat zoekt die?",
+  "waarom kiezen klanten voor jullie en niet voor een ander?",
+  "waar wil je dat jullie organisatie over één tot drie jaar staat?",
+  "wat is op dit moment jullie belangrijkste doel?",
+];
+
+export function buildPitch(values: Values, questionIndex: number) {
+  const branch = values.branche ? BRANCH_PHRASES[values.branche] ?? values.branche.toLowerCase() : "[branche]";
+  const province = values.provincie || "[provincie]";
+  const question = PITCH_QUESTIONS[((questionIndex % PITCH_QUESTIONS.length) + PITCH_QUESTIONS.length) % PITCH_QUESTIONS.length];
+  return `Wij focussen ons op het bouwen van websites in de ${branch} en dat doen we enkel in de regio ${province}. Daarom was ik benieuwd: ${question}`;
+}

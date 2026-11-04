@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
-  answered, BRANCHES, buildPrompt, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
+  answered, BRANCHES, buildPitch, buildPrompt, PITCH_QUESTIONS, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
   WARNING, type CsvRow, type Values,
 } from "@/lib/domain";
 
@@ -32,6 +32,8 @@ export default function LeadApp({ me }: { me: Profile }) {
   const [promptText, setPromptText] = useState<string | null>(null);
   const [releasing, setReleasing] = useState(false);
   const [notice, setNotice] = useState("");
+  const [pitchQuestion, setPitchQuestion] = useState(0);
+  const nextPitchQuestion = () => setPitchQuestion((old) => old + 1 + Math.floor(Math.random() * (PITCH_QUESTIONS.length - 1)));
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*)");
@@ -46,6 +48,7 @@ export default function LeadApp({ me }: { me: Profile }) {
   }, [supabase, master]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setPitchQuestion(Math.floor(Math.random() * PITCH_QUESTIONS.length)); }, []);
 
   const activeLeads = leads.filter((l) => !l.archived_at);
   const releasedLeads = leads.filter((l) => l.archived_at);
@@ -58,12 +61,12 @@ export default function LeadApp({ me }: { me: Profile }) {
 
   function go(v: View) { setView(v); window.scrollTo(0, 0); }
   function openLead(lead: Lead, withPrompt = false) {
-    setCurrentId(lead.id); setValues(lead.values); setStatus({ text: "", error: false }); setReleasing(false);
+    setCurrentId(lead.id); setValues(lead.values); setStatus({ text: "", error: false }); setReleasing(false); nextPitchQuestion();
     setPromptText(withPrompt ? buildPrompt(lead.values) : null);
     go("form");
   }
   function newLead() {
-    setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); window.scrollTo(0, 0);
+    setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); nextPitchQuestion(); window.scrollTo(0, 0);
   }
   async function save() {
     if (!(values.organisatie ?? "").trim()) { setStatus({ text: "Vul eerst de naam van de organisatie in.", error: true }); return; }
@@ -140,7 +143,8 @@ export default function LeadApp({ me }: { me: Profile }) {
             <Notes me={me} lead={current} reload={load} />
             <div className="script">
               <span className="eyebrow">Zo open je het gesprek</span>
-              <p>&quot;We werken met de nieuwste AI-methodes en kunnen daardoor meer voor minder doen. Mag ik je een paar vragen stellen over jullie organisatie? Het is helemaal vrijblijvend, en je hoeft nog niets te beslissen.&quot;</p>
+              <p id="pitch">&quot;{buildPitch(values, pitchQuestion)}&quot;</p>
+              <div><button className="link" type="button" onClick={nextPitchQuestion}>Andere openingsvraag</button></div>
             </div>
             <section className="step">
               <div className="step-head"><h2>Gegevens</h2></div>
