@@ -65,6 +65,8 @@ psql -f supabase/migrations/0001_leadsysteem.sql
 psql -f supabase/migrations/0002_terugzetten_en_selectie.sql
 psql -f supabase/tests/rls_test.sql
 psql -f supabase/tests/rls_test_2.sql
+psql -f supabase/migrations/0003_filters_naam_rechtsvorm.sql
+psql -f supabase/tests/rls_test_3.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.

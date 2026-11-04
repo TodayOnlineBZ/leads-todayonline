@@ -381,20 +381,34 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
   const master = me.role === "master";
   const [province, setProvince] = useState("");
   const [branch, setBranch] = useState("");
+  const [nameInput, setNameInput] = useState("");
+  const [name, setName] = useState("");
+  const [legalForm, setLegalForm] = useState("");
+  const [legalForms, setLegalForms] = useState<string[]>([]);
+  const [confirmDnc, setConfirmDnc] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [rows, setRows] = useState<SearchRow[] | null>(null);
   const [message, setMessage] = useState({ text: "", error: false });
-  const hasFilter = Boolean(province || branch);
+  const hasFilter = Boolean(province || branch || name || legalForm);
   const allMode = showAll && hasFilter;
 
   const fetchRows = useCallback(async (exclude: string[] = []) => {
     const { data, error } = allMode
-      ? await supabase.rpc("search_companies", { p_province: province || null, p_branch: branch || null })
-      : await supabase.rpc("random_companies", { p_province: province || null, p_branch: branch || null, p_exclude: exclude });
+      ? await supabase.rpc("search_companies", { p_province: province || null, p_branch: branch || null, p_name: name || null, p_legal_form: legalForm || null })
+      : await supabase.rpc("random_companies", { p_province: province || null, p_branch: branch || null, p_exclude: exclude, p_name: name || null, p_legal_form: legalForm || null });
     if (error) { setMessage({ text: "De bedrijven konden niet worden geladen. Ververs de pagina of probeer het opnieuw.", error: true }); setRows([]); return; }
     setRows(data as SearchRow[]);
-  }, [supabase, province, branch, allMode]);
+  }, [supabase, province, branch, name, legalForm, allMode]);
   useEffect(() => { void fetchRows(); }, [fetchRows]);
+  useEffect(() => {
+    const timer = setTimeout(() => setName(nameInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [nameInput]);
+  const loadLegalForms = useCallback(async () => {
+    const { data } = await supabase.rpc("company_legal_forms");
+    if (data) setLegalForms(data as string[]);
+  }, [supabase]);
+  useEffect(() => { void loadLegalForms(); }, [loadLegalForms]);
 
   async function claim(row: SearchRow) {
     const { data, error } = await supabase.rpc("claim_company", { p_company: row.id });
@@ -409,8 +423,13 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
   }
   async function setDnc(row: SearchRow, value: boolean) {
     const { error } = await supabase.rpc("set_do_not_call", { p_company: row.id, p_value: value });
-    setMessage(error ? { text: "Deze status kon niet worden gewijzigd.", error: true } : { text: row.name + (value ? " wordt niet meer gebeld." : " is hersteld."), error: false });
-    if (allMode) await fetchRows(); else if (!error) setRows((old) => (old ?? []).filter((r) => r.id !== row.id));
+    setConfirmDnc(null);
+    setMessage(error ? { text: "Deze status kon niet worden gewijzigd.", error: true } : { text: value ? row.name + " staat nu op Niet meer bellen." : row.name + " is hersteld.", error: false });
+    // De rij blijft staan, zodat zichtbaar is wat er is gewijzigd.
+    if (!error) {
+      if (value) setRows((old) => (old ?? []).map((r) => (r.id === row.id ? { ...r, do_not_call: true, phone: null } : r)));
+      else await fetchRows();
+    }
     await reload();
   }
   async function assign(row: SearchRow, owner: string) {
@@ -427,6 +446,8 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
       <div className="filters">
         <div className="q"><label htmlFor="searchProv">Provincie</label><select id="searchProv" value={province} onChange={(e) => { setProvince(e.target.value); clearMessage(); }}><option value="">Alle provincies</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
         <div className="q"><label htmlFor="searchBranch">Branche</label><select id="searchBranch" value={branch} onChange={(e) => { setBranch(e.target.value); clearMessage(); }}><option value="">Alle branches</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
+        <div className="q"><label htmlFor="searchLegal">Rechtsvorm</label><select id="searchLegal" value={legalForm} onChange={(e) => { setLegalForm(e.target.value); clearMessage(); }}><option value="">Alle rechtsvormen</option>{legalForms.map((f) => <option key={f}>{f}</option>)}</select></div>
+        <div className="q"><label htmlFor="searchName">Naam</label><input id="searchName" autoComplete="off" placeholder="Zoek op bedrijfsnaam" value={nameInput} onChange={(e) => { setNameInput(e.target.value); clearMessage(); }} /></div>
       </div>
       <div className="actions">
         {!allMode && <button className="btn alt" id="newSelection" type="button" onClick={() => { clearMessage(); void fetchRows((rows ?? []).map((r) => r.id)); }}>Nieuwe selectie</button>}
@@ -464,7 +485,15 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                         </select>
                       </>
                     )}
-                    {!c.do_not_call && (!taken || mine || master) && <button className="link" type="button" onClick={() => void setDnc(c, true)}>Markeer als niet meer bellen</button>}
+                    {!c.do_not_call && (!taken || mine || master) && (confirmDnc === c.id ? (
+                      <div className="confirm-box" role="group" aria-label={"Bevestig niet meer bellen voor " + c.name}>
+                        <span className="small">Weet je het zeker? {master ? "Je kunt dit later herstellen." : "Alleen de master kan dit herstellen."}</span>
+                        <div className="actions">
+                          <button className="btn small" type="button" onClick={() => void setDnc(c, true)}>Bevestigen</button>
+                          <button className="btn alt small" type="button" onClick={() => setConfirmDnc(null)}>Annuleren</button>
+                        </div>
+                      </div>
+                    ) : <button className="link" type="button" onClick={() => setConfirmDnc(c.id)}>Markeer als niet meer bellen</button>)}
                     {c.do_not_call && master && <button className="link" type="button" onClick={() => void setDnc(c, false)}>Status herstellen</button>}
                   </div></td>
                 </tr>
@@ -474,7 +503,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
         </table></div>
       )}
       {rows && rows.length === 0 && <p className="empty">{hasFilter ? "Geen bedrijven gevonden binnen deze filters." : "Er zijn nu geen beschikbare bedrijven."}{master ? " Importeer hieronder een lijst." : ""}</p>}
-      {master && <ImportBox onDone={() => fetchRows()} />}
+      {master && <ImportBox onDone={async () => { await fetchRows(); await loadLegalForms(); }} />}
     </div>
   );
 }

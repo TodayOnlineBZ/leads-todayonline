@@ -144,3 +144,4 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-actions.compact { min-width: 150px; }
 .btn.small { color: var(--on-green); display: inline-block; }
 .btn.alt.small { color: var(--fg); }
+.confirm-box { display: grid; gap: 8px; }
