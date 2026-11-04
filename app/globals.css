@@ -208,3 +208,14 @@ main .inner { grid-template-columns: minmax(0, 1fr); }
 .lead-panel > * { min-width: 0; }
 .dirty-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; background: var(--notice-bg); color: var(--notice-fg); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; }
 .proposal-row.is-final { outline: 2px solid var(--high-fg); }
+.tab-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.tab-title h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.edit-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.read-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px 24px; margin: 16px 0 0; }
+.read-list.single { grid-template-columns: minmax(0, 1fr); }
+.read-list > div { min-width: 0; }
+.read-list dt { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+.read-list dd { margin: 0; overflow-wrap: anywhere; }
+.read-value { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.read-empty { color: var(--muted); font-style: italic; }
+.lead-tabs { scroll-margin-top: 90px; }

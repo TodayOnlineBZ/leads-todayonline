@@ -17,8 +17,38 @@ export const pageHeaders = {
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; form-action 'none'; base-uri 'none'",
 };
 
+// De balk staat in de normale paginastroom en scrolt mee weg. Een sticky header begint daardoor vanzelf eronder;
+// een fixed of absolute header staat tegen de bovenrand en wordt hier onder de balk geschoven.
+const MVP_BANNER_SCRIPT = `(function(){
+var bar=document.getElementById("todayonline-mvp-balk");if(!bar)return;
+var fixed=new Map(),moved=new Set();
+function scan(){
+  var h=bar.offsetHeight;
+  document.querySelectorAll("body *").forEach(function(el){
+    if(el===bar||bar.contains(el)||fixed.has(el)||moved.has(el))return;
+    var cs=getComputedStyle(el);
+    if(cs.position!=="fixed"&&cs.position!=="absolute")return;
+    var r=el.getBoundingClientRect();
+    if(!r.height||r.height>innerHeight*.5||r.width<innerWidth*.5)return;
+    if(cs.position==="fixed"){if(r.top<=1&&parseFloat(cs.top)<=1)fixed.set(el,parseFloat(cs.top)||0);return;}
+    var parent=el.offsetParent;
+    if((!parent||parent===document.body||parent===document.documentElement)&&getComputedStyle(document.body).position==="static"&&r.top+scrollY<h){el.style.setProperty("top",((parseFloat(cs.top)||0)+h)+"px","important");moved.add(el);}
+  });
+}
+function place(){
+  var offset=Math.max(0,bar.offsetHeight-scrollY);
+  fixed.forEach(function(top,el){el.style.setProperty("top",(top+offset)+"px","important");});
+}
+function all(){scan();place();}
+var last=0;
+addEventListener("scroll",function(){var now=Date.now();if(now-last>300){last=now;scan();}place();},{passive:true});
+addEventListener("resize",all);
+addEventListener("DOMContentLoaded",all);
+addEventListener("load",function(){all();setTimeout(all,500);});
+})();`;
+
 export function withMvpBanner(html: string, expiresAt: string) {
-  const banner = `<div style="position:sticky;top:0;z-index:2147483647;background:#0f3d2e;color:#f5f7f4;font:14px/1.4 Arial,sans-serif;padding:8px 16px;text-align:center">Eerste opzet door TodayOnline, geldig tot ${escapeHtml(nlDate(expiresAt))}</div>`;
+  const banner = `<div id="todayonline-mvp-balk" style="position:relative;z-index:2147483647;display:block;box-sizing:border-box;width:100%;margin:0;background:#0f3d2e;color:#f5f7f4;font:14px/1.4 Arial,sans-serif;padding:8px 16px;text-align:center">Eerste opzet door TodayOnline, geldig tot ${escapeHtml(nlDate(expiresAt))}</div><script>${MVP_BANNER_SCRIPT}</script>`;
   return /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, (m) => m + banner) : banner + html;
 }
 

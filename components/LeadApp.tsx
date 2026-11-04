@@ -24,6 +24,18 @@ const nlDateTime = (at: string) => new Date(at).toLocaleString("nl-NL", { day: "
 const lastNote = (l: Lead) => [...l.notes].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
 const INFO_FIELDS: [string, string, string][] = [["organisatie", "Organisatie (verplicht)", "text"], ["contact", "Contactpersoon", "text"], ["telefoon", "Telefoonnummer", "tel"], ["email", "E-mailadres", "email"], ["site", "Huidige website", "text"]];
 
+type EditTab = "bedrijfsinfo" | "kwalificatie";
+const FIELDS_OF: Record<EditTab, string[]> = {
+  bedrijfsinfo: [...INFO_FIELDS.map(([id]) => id), "provincie", "branche"],
+  kwalificatie: [...STEPS.flatMap((step) => step.questions.map((q) => q.id)), "reactie", "notitie"],
+};
+const TAB_NAME: Record<EditTab, string> = { bedrijfsinfo: "Bedrijfsinfo", kwalificatie: "Kwalificatie" };
+
+function ReadValue({ value }: { value: string | undefined }) {
+  const text = (value ?? "").trim();
+  return text ? <p className="read-value">{text}</p> : <p className="read-value read-empty">Nog niet ingevuld</p>;
+}
+
 export default function LeadApp({ me }: { me: Profile }) {
   const master = me.role === "master";
   const supabase = useMemo(() => createClient(), []);
@@ -44,6 +56,8 @@ export default function LeadApp({ me }: { me: Profile }) {
   const [confirmDnc, setConfirmDnc] = useState(false);
   const [proposalData, setProposalData] = useState<ProposalData>({ proposals: [], events: [] });
   const restoredUrl = useRef(false);
+  const [editing, setEditing] = useState<Record<EditTab, boolean>>({ bedrijfsinfo: false, kwalificatie: false });
+  const [confirmCancel, setConfirmCancel] = useState<EditTab | null>(null);
   const nextPitchQuestion = () => setPitchQuestion((old) => old + 1 + Math.floor(Math.random() * (PITCH_QUESTIONS.length - 1)));
 
   const load = useCallback(async () => {
@@ -70,7 +84,10 @@ export default function LeadApp({ me }: { me: Profile }) {
   const activeUsers = profiles.filter((p) => p.status === "active");
   const waiting = profiles.filter((p) => p.status === "pending").length;
 
-  const dirty = !!current && [...new Set([...Object.keys(values), ...Object.keys(current.values)])].some((k) => (values[k] ?? "") !== (current.values[k] ?? ""));
+  const tabDirty = (tab: EditTab) => !!current && editing[tab] && FIELDS_OF[tab].some((k) => (values[k] ?? "") !== (current.values[k] ?? ""));
+  const dirtyTabs = (["bedrijfsinfo", "kwalificatie"] as EditTab[]).filter(tabDirty);
+  const dirty = dirtyTabs.length > 0;
+  const canEdit = !!current && (master || current.owner_id === me.id);
 
   // De open lead en tab staan in de URL, zodat verversen en een gedeelde link op dezelfde plek uitkomen.
   useEffect(() => {
@@ -98,25 +115,46 @@ export default function LeadApp({ me }: { me: Profile }) {
 
   function go(v: View) { setView(v); window.scrollTo(0, 0); }
   function openLead(lead: Lead, withPrompt = false) {
-    setCurrentId(lead.id); setValues(lead.values); setStatus({ text: "", error: false }); setReleasing(false); nextPitchQuestion();
+    // Dezelfde lead opnieuw openen laat onafgemaakte bewerkingen staan.
+    if (lead.id !== currentId) { setValues(lead.values); setEditing({ bedrijfsinfo: false, kwalificatie: false }); }
+    setConfirmCancel(null);
+    setCurrentId(lead.id); setStatus({ text: "", error: false }); setReleasing(false); nextPitchQuestion();
     setPromptText(withPrompt ? buildPrompt(lead.values) : null);
     setLeadTab(withPrompt ? "kwalificatie" : "bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] });
     go("form");
   }
   function newLead() {
-    setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); setLeadTab("bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] }); nextPitchQuestion(); window.scrollTo(0, 0);
+    setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); setEditing({ bedrijfsinfo: false, kwalificatie: false }); setConfirmCancel(null); setLeadTab("bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] }); nextPitchQuestion(); window.scrollTo(0, 0);
   }
-  async function save() {
-    if (!(values.organisatie ?? "").trim()) { setStatus({ text: "Vul eerst de naam van de organisatie in.", error: true }); return; }
+  async function save(tab?: EditTab) {
+    const checksName = !tab || tab === "bedrijfsinfo";
+    if (checksName && !(values.organisatie ?? "").trim()) { setStatus({ text: "Vul eerst de naam van de organisatie in.", error: true }); return; }
+    // Per tab opslaan: een bewerking op de andere tab blijft een concept.
+    const saved = current && tab ? { ...current.values, ...Object.fromEntries(FIELDS_OF[tab].map((k) => [k, values[k] ?? ""])) } : values;
     const query = currentId
-      ? supabase.from("leads").update({ values }).eq("id", currentId).select("id").single()
-      : supabase.from("leads").insert({ values, owner_id: me.id }).select("id").single();
+      ? supabase.from("leads").update({ values: saved }).eq("id", currentId).select("id").single()
+      : supabase.from("leads").insert({ values: saved, owner_id: me.id }).select("id").single();
     const { data, error } = await query;
-    if (error || !data) { setStatus({ text: "Opslaan is niet gelukt. Je antwoorden staan nog hier, dus probeer het opnieuw.", error: true }); return; }
+    if (error || !data) {
+      setStatus({ text: "Opslaan is niet gelukt. Je invoer staat er nog, dus probeer het opnieuw.", error: true });
+      document.getElementById("leadTabs")?.scrollIntoView({ block: "start" });
+      return;
+    }
     if (!currentId) setLeadTab("bedrijfsinfo");
+    if (tab) setEditing((old) => ({ ...old, [tab]: false }));
+    setConfirmCancel(null);
     setCurrentId(data.id);
     await load();
-    setStatus({ text: `Opgeslagen: ${values.organisatie} (ranking ${rank}).`, error: false });
+    setStatus({ text: `Opgeslagen: ${saved.organisatie}.`, error: false });
+    if (tab) document.getElementById("leadTabs")?.scrollIntoView({ block: "start" });
+  }
+  function startEdit(tab: EditTab) { setEditing((old) => ({ ...old, [tab]: true })); setStatus({ text: "", error: false }); }
+  function cancelEdit(tab: EditTab) {
+    if (tabDirty(tab) && confirmCancel !== tab) { setConfirmCancel(tab); return; }
+    setConfirmCancel(null);
+    setStatus({ text: "", error: false });
+    setValues((old) => ({ ...old, ...Object.fromEntries(FIELDS_OF[tab].map((k) => [k, current?.values[k] ?? ""])) }));
+    setEditing((old) => ({ ...old, [tab]: false }));
   }
   async function reassign(leadId: string, owner: string) {
     const { error } = await supabase.rpc("assign_lead", { p_lead: leadId, p_owner: owner });
@@ -136,6 +174,17 @@ export default function LeadApp({ me }: { me: Profile }) {
 
   const set = (id: string, v: string) => setValues((old) => ({ ...old, [id]: v }));
   let number = 0;
+  const qualEditable = !current || editing.kwalificatie;
+  const editButtons = (tab: EditTab) => (
+    <>
+      <button className="btn" type="button" onClick={() => void save(tab)}>Opslaan</button>
+      <button className="btn alt" type="button" onClick={() => cancelEdit(tab)}>{confirmCancel === tab ? "Klik nogmaals: wijzigingen weggooien" : "Annuleren"}</button>
+    </>
+  );
+  const editBar = (tab: EditTab) => {
+    if (!current || !canEdit) return null;
+    return <div className="edit-bar">{editing[tab] ? editButtons(tab) : <button className="btn alt" type="button" onClick={() => startEdit(tab)}>Bewerk info</button>}</div>;
+  };
   const visibleTabs = LEAD_TABS.filter(([key]) => key !== "voorstel" || master);
   const selectTab = (key: LeadTab) => setLeadTab(key);
   // Alle panelen blijven gemonteerd en zijn alleen verborgen: zo blijft invoer staan bij het wisselen.
@@ -189,7 +238,7 @@ export default function LeadApp({ me }: { me: Profile }) {
             {current && (
               <>
                 <div className="lead-head"><h2>{current.values.organisatie || "Lead"}</h2><span className={"pill " + rank}>{rank}</span></div>
-                <div className="lead-tabs" role="tablist" aria-label="Onderdelen van deze lead" onKeyDown={onTabKey}>
+                <div className="lead-tabs" id="leadTabs" role="tablist" aria-label="Onderdelen van deze lead" onKeyDown={onTabKey}>
                   {visibleTabs.map(([key, label]) => (
                     <button key={key} id={"tab-" + key} className="tab lead-tab" role="tab" type="button" aria-selected={leadTab === key} aria-controls={"panel-" + key} tabIndex={leadTab === key ? 0 : -1} onClick={() => selectTab(key)}>
                       {label}
@@ -198,7 +247,8 @@ export default function LeadApp({ me }: { me: Profile }) {
                     </button>
                   ))}
                 </div>
-                {dirty && <div className="dirty-bar" role="status"><span>Je hebt wijzigingen die nog niet zijn opgeslagen.</span><button className="btn small" type="button" onClick={() => void save()}>Opslaan</button></div>}
+                {dirty && <div className="dirty-bar" role="status"><span>Nog niet opgeslagen wijzigingen bij {dirtyTabs.map((t) => TAB_NAME[t]).join(" en ")}.</span>{!dirtyTabs.includes(leadTab as EditTab) && <button className="btn small" type="button" onClick={() => setLeadTab(dirtyTabs[0])}>Ga naar {TAB_NAME[dirtyTabs[0]]}</button>}</div>}
+                {status.text && <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>}
               </>
             )}
             <div {...panelProps("bedrijfsinfo")}>
@@ -225,30 +275,38 @@ export default function LeadApp({ me }: { me: Profile }) {
                 </div>
               )}
               <section className="step">
-                <div className="step-head"><h2>Gegevens</h2></div>
-                <div className="fields">
-                  {INFO_FIELDS.map(([id, label, type]) => (
-                    <div className="q" key={id}><label htmlFor={id}>{label}</label><input id={id} type={type} autoComplete="off" value={values[id] ?? ""} onChange={(e) => set(id, e.target.value)} />
-                      {id === "site" && (values.site ?? "").trim() && <span className="small">Website bekijken: <WebsiteLink value={values.site ?? ""} /></span>}
-                    </div>
-                  ))}
-                  <div className="q"><label htmlFor="provincie">Provincie</label><select id="provincie" value={values.provincie ?? ""} onChange={(e) => set("provincie", e.target.value)}><option value="">Kies een provincie</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
-                  <div className="q"><label htmlFor="branche">Branche</label><select id="branche" value={values.branche ?? ""} onChange={(e) => set("branche", e.target.value)}><option value="">Kies een branche</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
-                </div>
+                <div className="step-head tab-title"><h2>{current ? "Bedrijfsinfo" : "Gegevens"}</h2>{editBar("bedrijfsinfo")}</div>
+                {current && !editing.bedrijfsinfo ? (
+                  <dl className="read-list">
+                    {INFO_FIELDS.map(([id, label]) => (
+                      <div key={id}><dt>{label.replace(" (verplicht)", "")}</dt><dd>{id === "site" && (current.values.site ?? "").trim() ? <WebsiteLink value={current.values.site} /> : <ReadValue value={current.values[id]} />}</dd></div>
+                    ))}
+                    <div><dt>Provincie</dt><dd><ReadValue value={current.values.provincie} /></dd></div>
+                    <div><dt>Branche</dt><dd><ReadValue value={current.values.branche} /></dd></div>
+                  </dl>
+                ) : (
+                  <div className="fields">
+                    {INFO_FIELDS.map(([id, label, type]) => (
+                      <div className="q" key={id}><label htmlFor={id}>{label}</label><input id={id} type={type} autoComplete="off" value={values[id] ?? ""} onChange={(e) => set(id, e.target.value)} /></div>
+                    ))}
+                    <div className="q"><label htmlFor="provincie">Provincie</label><select id="provincie" value={values.provincie ?? ""} onChange={(e) => set("provincie", e.target.value)}><option value="">Kies een provincie</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
+                    <div className="q"><label htmlFor="branche">Branche</label><select id="branche" value={values.branche ?? ""} onChange={(e) => set("branche", e.target.value)}><option value="">Kies een branche</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
+                  </div>
+                )}
+                {current && editing.bedrijfsinfo && <div className="actions">{editButtons("bedrijfsinfo")}</div>}
               </section>
               {current && <div className="actions">
-                <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>
-                <button className="btn alt" type="button" onClick={() => { newLead(); }}>Nieuw gesprek</button>
+                <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
                 {current.company_id && !releasing && !QUOTE_REQUIRED.includes(current.sale_status) && <button className="btn alt" type="button" onClick={() => setReleasing(true)}>Terugzetten in de lijst</button>}
                 {master && current.company && !current.company.do_not_call && <button className="btn alt" type="button" onClick={() => void blockCurrent()}>{confirmDnc ? "Klik nogmaals om te bevestigen" : "Markeer als niet meer bellen"}</button>}
               </div>}
               {current?.company_id && QUOTE_REQUIRED.includes(current.sale_status) && <p className="hint">Terugzetten kan niet zolang de status {current.sale_status} is. {master ? "Wijzig eerst de verkoopstatus." : "De master moet eerst de status wijzigen."}</p>}
               {current?.company_id && releasing && !QUOTE_REQUIRED.includes(current.sale_status) && (
-                <ReleasePanel lead={current} onCancel={() => setReleasing(false)} onDone={() => void afterRelease(current)}
-                  beforeRelease={async () => !(await supabase.from("leads").update({ values }).eq("id", current.id)).error} />
+                <ReleasePanel lead={current} onCancel={() => setReleasing(false)} onDone={() => void afterRelease(current)} />
               )}
             </div>
             <div {...panelProps("kwalificatie")}>
+              {current && <div className="tab-title"><h2>Kwalificatie</h2>{editBar("kwalificatie")}</div>}
               <div className="strip"><span>{count} van {TOTAL_QUESTIONS} beantwoord</span><div className="track"><div className="fill" style={{ width: (count / TOTAL_QUESTIONS) * 100 + "%" }} /></div><span className={"pill " + rank}>{rank}</span></div>
               <div className="script">
                 <span className="eyebrow">Zo open je het gesprek</span>
@@ -264,8 +322,12 @@ export default function LeadApp({ me }: { me: Profile }) {
                       return (
                         <div className="q" key={q.id}>
                           <label className="qlabel" htmlFor={q.id}><span className="n">{number}</span><span>{q.q}</span></label>
-                          <p className="hint indent">Let op: {q.hint}</p>
-                          <textarea className="indent-box" id={q.id} value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)} />
+                          {qualEditable ? (
+                            <>
+                              <p className="hint indent">Let op: {q.hint}</p>
+                              <textarea className="indent-box" id={q.id} value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)} />
+                            </>
+                          ) : <div className="indent-box"><ReadValue value={current?.values[q.id]} /></div>}
                         </div>
                       );
                     })}
@@ -274,12 +336,22 @@ export default function LeadApp({ me }: { me: Profile }) {
               </div>
               <section className="step">
                 <div className="step-head"><span className="eyebrow">Afronden</span><h2>Volgende stap</h2><p>Vraag: &quot;Wat zou je ervan vinden als we op basis van dit gesprek vrijblijvend een eerste ontwerp voor je maken?&quot;</p></div>
-                <div className="q"><label htmlFor="reactie">Reactie op het voorstel</label><textarea id="reactie" value={values.reactie ?? ""} onChange={(e) => set("reactie", e.target.value)} /></div>
-                <div className="q"><label htmlFor="notitie">Overige notities</label><textarea id="notitie" value={values.notitie ?? ""} onChange={(e) => set("notitie", e.target.value)} /></div>
+                {qualEditable ? (
+                  <>
+                    <div className="q"><label htmlFor="reactie">Reactie op het voorstel</label><textarea id="reactie" value={values.reactie ?? ""} onChange={(e) => set("reactie", e.target.value)} /></div>
+                    <div className="q"><label htmlFor="notitie">Overige notities</label><textarea id="notitie" value={values.notitie ?? ""} onChange={(e) => set("notitie", e.target.value)} /></div>
+                  </>
+                ) : (
+                  <dl className="read-list single">
+                    <div><dt>Reactie op het voorstel</dt><dd><ReadValue value={current?.values.reactie} /></dd></div>
+                    <div><dt>Overige notities</dt><dd><ReadValue value={current?.values.notitie} /></dd></div>
+                  </dl>
+                )}
               </section>
               <div className="actions">
-                <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>
-                {current && <button className="btn alt" type="button" onClick={() => setPromptText(buildPrompt(values))}>Exporteer als MVP-prompt</button>}
+                {!current && <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>}
+                {current && editing.kwalificatie && editButtons("kwalificatie")}
+                {current && <button className="btn alt" type="button" onClick={() => setPromptText(buildPrompt(current.values))}>Exporteer als MVP-prompt</button>}
                 <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
               </div>
               {promptText !== null && <PromptBox text={promptText} />}
@@ -296,7 +368,7 @@ export default function LeadApp({ me }: { me: Profile }) {
                 <ProposalPanel key={"proposal-" + current.id} lead={current} onData={setProposalData} />
               </div>
             )}
-            <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>
+            {!current && <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>}
           </div>
         )}
 
