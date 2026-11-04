@@ -572,7 +572,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
       <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>
       {rows && rows.length > 0 && (
         <div className="table-box"><table>
-          <thead><tr>{["Bedrijfsnaam", "Plaats", "Provincie en branche", "Algemeen nummer", "Website", "Rechtsvorm", "Bron en toestemming", "Status", "Actie"].map((h) => <th className="plain" key={h}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Bedrijfsnaam", "Plaats", "Provincie en branche", "Algemeen nummer", "Website", "Rechtsvorm", "Status", "Actie"].map((h) => <th className="plain" key={h}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map((c) => {
               const taken = Boolean(c.owner_id), mine = c.owner_id === me.id;
@@ -585,8 +585,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                   {c.do_not_call ? <td className="blocked">Geblokkeerd</td> : <td className="num">{c.phone || "-"}</td>}
                   <td className="site-cell"><WebsiteLink value={c.website} /></td>
                   <td>{c.legal_form}</td>
-                  <td><span className="small">Bron: {c.source}</span><span className="small">Toestemming: {c.consent}</span></td>
-                  <td>{c.do_not_call ? <span className="pill dnc">Niet meer bellen</span> : taken ? <span className="pill taken">In behandeling bij {c.owner_name}</span> : <span className="pill free">Beschikbaar</span>}</td>
+                                    <td>{c.do_not_call ? <span className="pill dnc">Niet meer bellen</span> : taken ? <span className="pill taken">In behandeling bij {c.owner_name}</span> : <span className="pill free">Beschikbaar</span>}</td>
                   <td><div className="row-actions">
                     {!c.do_not_call && !taken && <button className="btn small" type="button" onClick={() => void claim(c)}>Neem in behandeling</button>}
                     {ownLead && <button className="btn alt small" type="button" onClick={() => onOpen(ownLead)}>Open lead</button>}
