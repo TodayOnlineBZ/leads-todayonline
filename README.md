@@ -28,6 +28,8 @@ De standaardmail van Supabase werkt alleen voor eigen teamleden, en maximaal 2 b
 | Invite user | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/wachtwoord` |
 | Reset password | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/wachtwoord` |
 
+4. Vercel → **Settings → Environment Variables**: voeg `RESEND_API_KEY` toe en redeploy. Hiermee krijgt de master een melding als iemand wacht op goedkeuring, en krijgt de gebruiker een mail na goedkeuring.
+
 ### 4. CAPTCHA instellen
 1. Cloudflare → **Turnstile**: maak een widget voor `leads.todayonline.nl`.
 2. Supabase → **Authentication → Bot and Abuse Protection**: zet CAPTCHA aan, kies Turnstile en vul de **geheime** sleutel in.

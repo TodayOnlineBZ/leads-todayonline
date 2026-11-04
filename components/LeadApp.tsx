@@ -762,8 +762,11 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
   const list = profiles.filter((p) => p.status !== "removed").sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"));
 
   async function approve(p: Profile) {
-    const { error } = await supabase.from("profiles").update({ status: "active" }).eq("id", p.id);
-    setMessage(error ? { text: "Goedkeuren is niet gelukt.", error: true } : { text: p.name + " is goedgekeurd en kan nu inloggen.", error: false });
+    const res = await fetch("/api/admin/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) setMessage({ text: String(data.error ?? "Goedkeuren is niet gelukt."), error: true });
+    else if (data.emailSent) setMessage({ text: p.name + " is goedgekeurd en heeft een mail gekregen.", error: false });
+    else setMessage({ text: p.name + " is goedgekeurd, maar de mail kon niet worden verstuurd. Laat het deze persoon zelf weten.", error: true });
     await reload();
   }
   async function post(path: string, body: unknown) {
