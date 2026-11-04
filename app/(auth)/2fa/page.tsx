@@ -1,4 +1,5 @@
 "use client";
+import BusyButton, { LoadingNote, SignOutButton } from "@/components/BusyButton";
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -57,7 +58,7 @@ export default function TwoFactorPage() {
     window.location.href = nextPath();
   }
 
-  if (mode === "loading") return <div className="panel"><h2>Tweestapsverificatie</h2><p>Bezig met laden.</p></div>;
+  if (mode === "loading") return <div className="panel"><h2>Tweestapsverificatie</h2><p><LoadingNote text="Laden" /></p></div>;
 
   return (
     <div className="panel">
@@ -94,10 +95,10 @@ export default function TwoFactorPage() {
         <input id="code" inputMode="numeric" autoComplete="one-time-code" maxLength={7} autoFocus value={code} onChange={(e) => setCode(e.target.value)} />
       </div>
       <p className={"status" + (error ? " err" : "")} role="status">{error}</p>
-      <button className="btn" type="submit" disabled={busy || !factorId}>{busy ? "Bezig met controleren" : mode === "enroll" ? "Activeren" : "Bevestigen"}</button>
+      <BusyButton className="btn" type="submit" busy={busy} disabled={!factorId} busyText="Controleren…">{mode === "enroll" ? "Activeren" : "Bevestigen"}</BusyButton>
       {mode === "verify" && <p className="hint">Telefoon kwijt? Vraag Bart om je tweestapsverificatie te resetten.</p>}
     </form>
-    <form action="/auth/signout" method="post"><button className="link" type="submit">Uitloggen</button></form>
+    <SignOutButton className="link" />
     </div>
   );
 }

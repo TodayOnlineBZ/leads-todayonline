@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import BusyButton, { LoadingNote, SignOutButton, Spinner } from "@/components/BusyButton";
 import { createClient } from "@/lib/supabase/client";
 import {
   answered, BRANCHES, centsToInput, commissionLabel, formatEuro, parseEuroToCents, QUOTE_REQUIRED, SALE_CLASS, SALE_STATUSES, buildPitch, buildPrompt, PITCH_QUESTIONS, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
@@ -36,6 +37,10 @@ function ReadValue({ value }: { value: string | undefined }) {
   return text ? <p className="read-value">{text}</p> : <p className="read-value read-empty">Nog niet ingevuld</p>;
 }
 
+// Een netwerkfout wordt een gewone foutmelding, en een hangend verzoek stopt vanzelf.
+const apiFetch = (url: string, init: RequestInit) =>
+  fetch(url, { ...init, signal: AbortSignal.timeout(60_000) }).catch(() => new Response(JSON.stringify({ error: "Geen verbinding. Probeer het opnieuw." }), { status: 503 }));
+
 export default function LeadApp({ me }: { me: Profile }) {
   const master = me.role === "master";
   const supabase = useMemo(() => createClient(), []);
@@ -54,6 +59,7 @@ export default function LeadApp({ me }: { me: Profile }) {
   const [pitchQuestion, setPitchQuestion] = useState(0);
   const [leadTab, setLeadTab] = useState<LeadTab>("bedrijfsinfo");
   const [confirmDnc, setConfirmDnc] = useState(false);
+  const [assigning, setAssigning] = useState(false);
   const [proposalData, setProposalData] = useState<ProposalData>({ proposals: [], events: [] });
   const restoredUrl = useRef(false);
   const [editing, setEditing] = useState<Record<EditTab, boolean>>({ bedrijfsinfo: false, kwalificatie: false });
@@ -157,7 +163,9 @@ export default function LeadApp({ me }: { me: Profile }) {
     setEditing((old) => ({ ...old, [tab]: false }));
   }
   async function reassign(leadId: string, owner: string) {
+    setAssigning(true);
     const { error } = await supabase.rpc("assign_lead", { p_lead: leadId, p_owner: owner });
+    setAssigning(false);
     if (error) { setStatus({ text: "Toewijzen is niet gelukt.", error: true }); return false; }
     await load();
     setStatus({ text: "Lead toegewezen aan " + ownerName(owner) + ".", error: false });
@@ -177,7 +185,7 @@ export default function LeadApp({ me }: { me: Profile }) {
   const qualEditable = !current || editing.kwalificatie;
   const editButtons = (tab: EditTab) => (
     <>
-      <button className="btn" type="button" onClick={() => void save(tab)}>Opslaan</button>
+      <BusyButton className="btn" type="button" busyText="Opslaan…" onAction={() => save(tab)}>Opslaan</BusyButton>
       <button className="btn alt" type="button" onClick={() => cancelEdit(tab)}>{confirmCancel === tab ? "Klik nogmaals: wijzigingen weggooien" : "Annuleren"}</button>
     </>
   );
@@ -233,7 +241,7 @@ export default function LeadApp({ me }: { me: Profile }) {
           <a className="icon-btn" href="/instellingen" aria-label="Instellingen" title="Instellingen">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5v.2a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1h-.2a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5v-.2a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
           </a>
-          <form action="/auth/signout" method="post"><button className="btn alt small" type="submit">Uitloggen</button></form>
+          <SignOutButton className="btn alt small" />
         </div>
       </div></div>
       <main className="gutter">
@@ -263,11 +271,12 @@ export default function LeadApp({ me }: { me: Profile }) {
                   {master ? (
                     <>
                       <label className="lbl" htmlFor="ownerSelect">Eigenaar van deze lead</label>
-                      <select id="ownerSelect" value={current.owner_id} onChange={(e) => { if (QUOTE_REQUIRED.includes(current.sale_status)) setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
+                      <select id="ownerSelect" disabled={assigning} value={current.owner_id} onChange={(e) => { if (QUOTE_REQUIRED.includes(current.sale_status)) setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
                         {ownerRemoved(current.owner_id) && <option value={current.owner_id}>{ownerName(current.owner_id)} (verwijderd): kies een nieuwe</option>}
                         {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                       </select>
-                      {pendingOwner && <AssignConfirm leadId={current.id} owner={pendingOwner} ownerLabel={ownerName(pendingOwner)} onCancel={() => setPendingOwner(null)} onConfirm={() => { const owner = pendingOwner; setPendingOwner(null); void reassign(current.id, owner); }} />}
+                      {assigning && !pendingOwner && <LoadingNote text="Toewijzen" />}
+                      {pendingOwner && <AssignConfirm leadId={current.id} owner={pendingOwner} ownerLabel={ownerName(pendingOwner)} onCancel={() => setPendingOwner(null)} onConfirm={async () => { await reassign(current.id, pendingOwner); setPendingOwner(null); }} />}
                     </>
                   ) : <><span className="lbl">Eigenaar van deze lead</span><span className="small">{ownerName(current.owner_id)}</span></>}
                 </div>
@@ -304,7 +313,7 @@ export default function LeadApp({ me }: { me: Profile }) {
               {current && <div className="actions">
                 <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
                 {current.company_id && !releasing && !QUOTE_REQUIRED.includes(current.sale_status) && <button className="btn alt" type="button" onClick={() => setReleasing(true)}>Terugzetten in de lijst</button>}
-                {master && current.company && !current.company.do_not_call && <button className="btn alt" type="button" onClick={() => void blockCurrent()}>{confirmDnc ? "Klik nogmaals om te bevestigen" : "Markeer als niet meer bellen"}</button>}
+                {master && current.company && !current.company.do_not_call && <BusyButton className="btn alt" type="button" busyText="Markeren…" onAction={blockCurrent}>{confirmDnc ? "Klik nogmaals om te bevestigen" : "Markeer als niet meer bellen"}</BusyButton>}
               </div>}
               {current?.company_id && QUOTE_REQUIRED.includes(current.sale_status) && <p className="hint">Terugzetten kan niet zolang de status {current.sale_status} is. {master ? "Wijzig eerst de verkoopstatus." : "De master moet eerst de status wijzigen."}</p>}
               {current?.company_id && releasing && !QUOTE_REQUIRED.includes(current.sale_status) && (
@@ -355,7 +364,7 @@ export default function LeadApp({ me }: { me: Profile }) {
                 )}
               </section>
               <div className="actions">
-                {!current && <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>}
+                {!current && <BusyButton className="btn" type="button" busyText="Opslaan…" onAction={() => save()}>Opslaan</BusyButton>}
                 {current && editing.kwalificatie && editButtons("kwalificatie")}
                 {current && <button className="btn alt" type="button" onClick={() => setPromptText(buildPrompt(current.values))}>Exporteer als MVP-prompt</button>}
                 <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
@@ -384,6 +393,7 @@ export default function LeadApp({ me }: { me: Profile }) {
         {view === "search" && (
           <SearchView me={me} activeUsers={activeUsers} leads={activeLeads} reload={load} onOpen={openLead} />
         )}
+        {loading && (view === "users" || view === "released") && <div className="inner wide"><LoadingNote text="Gegevens laden" /></div>}
         {view === "users" && master && (
           <UsersView me={me} profiles={profiles} leads={activeLeads} reload={load} />
         )}
@@ -438,7 +448,7 @@ function Notes({ me, lead, reload }: { me: Profile; lead: Lead | null; reload: (
         <div className="q">
           <label htmlFor="noteInput">Wat is er besproken of uitgewisseld?</label>
           <textarea id="noteInput" value={input} onChange={(e) => setInput(e.target.value)} />
-          <div className="actions"><button className="btn" type="button" onClick={() => void add()}>Notitie toevoegen</button></div>
+          <div className="actions"><BusyButton className="btn" type="button" busyText="Toevoegen…" onAction={add}>Notitie toevoegen</BusyButton></div>
         </div>
       )}
       {error && <p className="status err" role="status">{error}</p>}
@@ -451,10 +461,10 @@ function Notes({ me, lead, reload }: { me: Profile; lead: Lead | null; reload: (
                 <>
                   <textarea aria-label="Notitie bewerken" value={editing.body} onChange={(e) => setEditing({ id: n.id, body: e.target.value })} />
                   <div className="actions">
-                    <button className="btn small" type="button" onClick={async () => {
+                    <BusyButton className="btn small" type="button" busyText="Opslaan…" onAction={async () => {
                       if (!editing.body.trim()) return;
                       if (await guard(supabase.from("lead_notes").update({ body: editing.body.trim() }).eq("id", n.id), "Bewerken is niet gelukt.")) setEditing(null);
-                    }}>Opslaan</button>
+                    }}>Opslaan</BusyButton>
                     <button className="btn alt small" type="button" onClick={() => setEditing(null)}>Annuleren</button>
                   </div>
                 </>
@@ -463,11 +473,11 @@ function Notes({ me, lead, reload }: { me: Profile; lead: Lead | null; reload: (
                   <p className="note-text">{n.body}</p>
                   <div className="note-actions">
                     {(master || n.author_id === me.id) && <button className="link" type="button" onClick={() => setEditing({ id: n.id, body: n.body })}>Bewerken</button>}
-                    {master && <button className="link" type="button" onClick={() => {
+                    {master && <BusyButton className="link" type="button" busyText="Verwijderen…" onAction={() => {
                       if (confirmDelete !== n.id) { setConfirmDelete(n.id); return; }
                       setConfirmDelete(null);
-                      void guard(supabase.from("lead_notes").delete().eq("id", n.id), "Verwijderen is niet gelukt.");
-                    }}>{confirmDelete === n.id ? "Klik nogmaals om te verwijderen" : "Verwijderen"}</button>}
+                      return guard(supabase.from("lead_notes").delete().eq("id", n.id), "Verwijderen is niet gelukt.");
+                    }}>{confirmDelete === n.id ? "Klik nogmaals om te verwijderen" : "Verwijderen"}</BusyButton>}
                   </div>
                 </>
               )}
@@ -532,7 +542,7 @@ function SalesBreakdown({ leads, ownerName }: { leads: Lead[]; ownerName: (id: s
   );
 }
 
-function AssignConfirm({ leadId, owner, ownerLabel, onConfirm, onCancel }: { leadId: string; owner: string; ownerLabel: string; onConfirm: () => void; onCancel: () => void }) {
+function AssignConfirm({ leadId, owner, ownerLabel, onConfirm, onCancel }: { leadId: string; owner: string; ownerLabel: string; onConfirm: () => unknown; onCancel: () => void }) {
   const supabase = useMemo(() => createClient(), []);
   const [split, setSplit] = useState<{ old_sales_cents: number | null; old_master_cents: number | null; new_sales_cents: number; new_master_cents: number } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -550,7 +560,7 @@ function AssignConfirm({ leadId, owner, ownerLabel, onConfirm, onCancel }: { lea
       {split && <span className="small">Commissie sales: {formatEuro(split.old_sales_cents)} → {formatEuro(split.new_sales_cents)}. Aandeel master: {formatEuro(split.old_master_cents)} → {formatEuro(split.new_master_cents)}.</span>}
       {failed && <span className="small">De nieuwe verdeling kon niet worden berekend. Ververs de pagina en probeer het opnieuw.</span>}
       <div className="actions">
-        <button className="btn small" type="button" disabled={!split} onClick={onConfirm}>Bevestigen</button>
+        <BusyButton className="btn small" type="button" disabled={!split} busyText="Toewijzen…" onAction={onConfirm}>Bevestigen</BusyButton>
         <button className="btn alt small" type="button" onClick={onCancel}>Annuleren</button>
       </div>
     </div>
@@ -584,7 +594,7 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
             <div className="q"><label htmlFor="saleStatus">Verkoopstatus</label><select id="saleStatus" value={status} onChange={(e) => setStatus(e.target.value)}>{SALE_STATUSES.map((v) => <option key={v}>{v}</option>)}</select></div>
             <div className="q"><label htmlFor="saleAmount">Offertebedrag in euro&apos;s, exclusief btw</label><input id="saleAmount" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2000" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
           </div>
-          <div className="actions"><button className="btn" id="saveSale" type="button" disabled={busy} onClick={() => void save()}>{busy ? "Bezig met opslaan" : "Verkoopstatus opslaan"}</button></div>
+          <div className="actions"><BusyButton className="btn" id="saveSale" type="button" busy={busy} busyText="Opslaan…" onClick={() => void save()}>Verkoopstatus opslaan</BusyButton></div>
           {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
         </>
       ) : null}
@@ -693,7 +703,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
           })}
         </tbody>
       </table>
-      {list.length === 0 && <p className="empty">{loading ? "Bezig met laden." : leads.length ? "Geen bedrijven gevonden. Pas je filters aan." : "Nog geen bedrijven. Neem er een in behandeling via Bedrijven zoeken of sla een nieuw gesprek op."}</p>}
+      {list.length === 0 && <p className="empty">{loading ? <LoadingNote text="Bedrijven laden" /> : leads.length ? "Geen bedrijven gevonden. Pas je filters aan." : "Nog geen bedrijven. Neem er een in behandeling via Bedrijven zoeken of sla een nieuw gesprek op."}</p>}
       </div>
     </div>
   );
@@ -774,10 +784,10 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
         <div className="q"><label htmlFor="searchName">Naam</label><input id="searchName" autoComplete="off" placeholder="Zoek op bedrijfsnaam" value={nameInput} onChange={(e) => { setNameInput(e.target.value); clearMessage(); }} /></div>
       </div>
       <div className="actions">
-        {!allMode && <button className="btn alt" id="newSelection" type="button" onClick={() => { clearMessage(); void fetchRows((rows ?? []).map((r) => r.id)); }}>Nieuwe selectie</button>}
+        {!allMode && <BusyButton className="btn alt" id="newSelection" type="button" busyText="Selecteren…" onAction={() => { clearMessage(); return fetchRows((rows ?? []).map((r) => r.id)); }}>Nieuwe selectie</BusyButton>}
         <label className="check" htmlFor="showAll"><input id="showAll" type="checkbox" checked={showAll} disabled={!hasFilter} onChange={(e) => setShowAll(e.target.checked)} /><span>Ook bedrijven tonen die in behandeling of geblokkeerd zijn{hasFilter ? "" : " (kies eerst een filter)"}</span></label>
       </div>
-      <p className="hint">{!rows ? "Bezig met laden." : allMode ? rows.length + " bedrijven gevonden" + (rows.length === 200 ? ". Dit zijn de eerste 200 op naam; verfijn je filter." : ".") : rows.length + " willekeurige bedrijven."}</p>
+      <p className="hint">{!rows ? <LoadingNote text="Bedrijven laden" /> : allMode ? rows.length + " bedrijven gevonden" + (rows.length === 200 ? ". Dit zijn de eerste 200 op naam; verfijn je filter." : ".") : rows.length + " willekeurige bedrijven."}</p>
       <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>
       {rows && rows.length > 0 && (
         <div className="table-box"><table>
@@ -796,7 +806,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                   <td>{c.legal_form}</td>
                                     <td>{c.do_not_call ? <span className="pill dnc">Niet meer bellen</span> : taken ? <span className="pill taken">In behandeling bij {c.owner_name}</span> : <span className="pill free">Beschikbaar</span>}</td>
                   <td><div className="row-actions">
-                    {!c.do_not_call && !taken && <button className="btn small" type="button" onClick={() => void claim(c)}>Neem in behandeling</button>}
+                    {!c.do_not_call && !taken && <BusyButton className="btn small" type="button" busyText="Overnemen…" onAction={() => claim(c)}>Neem in behandeling</BusyButton>}
                     {ownLead && <button className="btn alt small" type="button" onClick={() => onOpen(ownLead)}>Open lead</button>}
                     {taken && !mine && !master && <span className="small">Geclaimd door een collega</span>}
                     {taken && master && (
@@ -813,12 +823,12 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                       <div className="confirm-box" role="group" aria-label={"Bevestig niet meer bellen voor " + c.name}>
                         <span className="small">Weet je het zeker? Je kunt dit later herstellen.</span>
                         <div className="actions">
-                          <button className="btn small" type="button" onClick={() => void setDnc(c, true)}>Bevestigen</button>
+                          <BusyButton className="btn small" type="button" busyText="Opslaan…" onAction={() => setDnc(c, true)}>Bevestigen</BusyButton>
                           <button className="btn alt small" type="button" onClick={() => setConfirmDnc(null)}>Annuleren</button>
                         </div>
                       </div>
                     ) : <button className="link" type="button" onClick={() => setConfirmDnc(c.id)}>Markeer als niet meer bellen</button>)}
-                    {c.do_not_call && master && <button className="link" type="button" onClick={() => void setDnc(c, false)}>Status herstellen</button>}
+                    {c.do_not_call && master && <BusyButton className="link" type="button" busyText="Herstellen…" onAction={() => setDnc(c, false)}>Status herstellen</BusyButton>}
                   </div></td>
                 </tr>
               );
@@ -859,7 +869,7 @@ function ReleasePanel({ lead, onCancel, onDone, beforeRelease }: { lead: Lead; o
       {reason === "Anders" && <div className="q"><label htmlFor="releaseNote">Toelichting</label><textarea id="releaseNote" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} /></div>}
       {error && <p className="status err" role="status">{error}</p>}
       <div className="actions">
-        <button className="btn" id="confirmRelease" type="button" disabled={busy} onClick={() => void confirm()}>{busy ? "Bezig met terugzetten" : "Bevestig terugzetten"}</button>
+        <BusyButton className="btn" id="confirmRelease" type="button" busy={busy} busyText="Terugzetten…" onClick={() => void confirm()}>Bevestig terugzetten</BusyButton>
         <button className="btn alt" type="button" onClick={onCancel}>Annuleren</button>
       </div>
     </section>
@@ -892,7 +902,7 @@ function ReleasedView({ leads, ownerName, reload }: { leads: Lead[]; ownerName: 
             <td className="num">{l.archived_at ? nlDateTime(l.archived_at) : "-"}</td>
             <td><button className="btn alt small" type="button" onClick={() => setOpenId(openId === l.id ? null : l.id)}>{openId === l.id ? "Sluiten" : "Bekijken"}</button>
               {l.archived_company?.do_not_call && <span className="pill dnc review-pill">Niet meer bellen</span>}
-              {needsReview(l) && l.archived_company && !l.archived_company.do_not_call && <button className="link review-link" type="button" onClick={() => { if (confirmDnc === l.id) void blockCompany(l); else setConfirmDnc(l.id); }}>{confirmDnc === l.id ? "Klik nogmaals om te bevestigen" : "Zet op niet meer bellen"}</button>}
+              {needsReview(l) && l.archived_company && !l.archived_company.do_not_call && <BusyButton className="link review-link" type="button" busyText="Opslaan…" onAction={() => { if (confirmDnc === l.id) return blockCompany(l); setConfirmDnc(l.id); }}>{confirmDnc === l.id ? "Klik nogmaals om te bevestigen" : "Zet op niet meer bellen"}</BusyButton>}
             </td>
           </tr>
         ))}</tbody>
@@ -932,8 +942,11 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
   const [message, setMessage] = useState({ text: "", error: false });
   const [busy, setBusy] = useState(false);
   const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const wasGenerating = useRef(false);
   const fetchProposals = useCallback(async () => {
     const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    setLoaded(true);
     if (error || !data) return;
     setProposals(data as Proposal[]);
     const log = await supabase.from("lead_proposal_events").select("id, proposal_id, kind, price_cents, final_cents, actor_name, created_at").eq("lead_id", lead.id);
@@ -942,13 +955,20 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
   useEffect(() => { void fetchProposals(); }, [fetchProposals]);
   const isRunning = (p: Proposal) => p.status === "generating" && Date.now() - new Date(p.created_at).getTime() < 6 * 60_000;
   const generating = proposals.some(isRunning);
+  // Zodra een lopend voorstel klaar of mislukt is, vervangt het resultaat de wachtmelding.
+  useEffect(() => {
+    if (wasGenerating.current && !generating) {
+      setMessage(proposals[0]?.status === "ready" ? { text: "Het voorstel is klaar. Je kunt het hieronder bekijken.", error: false } : { text: "Het maken van het voorstel is mislukt. Hieronder staat waarom.", error: true });
+    }
+    wasGenerating.current = generating;
+  }, [generating, proposals]);
   useEffect(() => {
     if (!generating) return;
     const timer = setInterval(() => void fetchProposals(), 5000);
     return () => clearInterval(timer);
   }, [generating, fetchProposals]);
   const call = async (method: string, body: unknown) => {
-    const res = await fetch("/api/admin/proposals", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await apiFetch("/api/admin/proposals", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     return res.ok ? "" : String(data.error ?? "Dat is niet gelukt.");
   };
@@ -957,8 +977,10 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
     if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul de prijs vóór korting in, bijvoorbeeld 2500.", error: true }); return; }
     setBusy(true);
     const err = await call("POST", { leadId: lead.id, priceCents: cents });
+    // Ook een voorstel dat meteen mislukt, moet een resultaatmelding geven.
+    if (!err) wasGenerating.current = true;
     setBusy(false);
-    setMessage(err ? { text: err, error: true } : { text: "Het voorstel wordt gemaakt. Dit kan een paar minuten duren.", error: false });
+    setMessage(err ? { text: err, error: true } : { text: "", error: false });
     await fetchProposals();
   }
   async function finalize(p: Proposal) {
@@ -982,14 +1004,16 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
       <div className="q"><label htmlFor="proposalPrice">Prijs vóór korting, exclusief btw</label><input id="proposalPrice" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2500" value={price} onChange={(e) => setPrice(e.target.value)} />
         {preview !== null && !Number.isNaN(preview) && <p className="hint">Klant betaalt {formatEuro(Math.round(preview * 0.9))} na 10% korting.</p>}
       </div>
-      <div className="actions"><button className="btn" id="createProposal" type="button" disabled={busy || generating} onClick={() => void create()}>{generating ? "Voorstel wordt gemaakt" : "Voorstel maken"}</button></div>
+      <div className="actions"><BusyButton className="btn" id="createProposal" type="button" busy={busy || generating} busyText="Voorstel wordt gemaakt" onClick={() => void create()}>Voorstel maken</BusyButton></div>
       {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
+      {!loaded && <LoadingNote text="Voorstellen laden" />}
       {proposals.length > 1 && <p className="hint">Geschiedenis, nieuwste bovenaan.</p>}
       {proposals.map((p) => {
         const expired = new Date(p.expires_at).getTime() < Date.now();
         return (
           <div className={"owner-box proposal-row" + (p.finalized_at ? " is-final" : "")} key={p.id}>
             {p.finalized_at && <span className="small"><span className="pill final-pill">Definitief</span> {p.finalized_by_name} · {nlDateTime(p.finalized_at)}</span>}
+            {isRunning(p) && <span className="small proposal-running" role="status"><Spinner />Dit kan een paar minuten duren. Je kunt deze pagina open laten.</span>}
             <span className="lbl">{isRunning(p) ? "Bezig met maken" : p.status === "generating" ? "Afgebroken, probeer het opnieuw" : p.status === "failed" ? "Mislukt" : p.disabled_at ? "Link staat uit" : expired ? "Verlopen" : "Klaar om te beoordelen"} · {nlDateTime(p.created_at)}</span>
             {p.status === "failed" && <span className="small">{p.error}</span>}
             {p.status === "ready" && (
@@ -999,9 +1023,9 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
                 <div className="actions">
                   {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}`} target="_blank" rel="noopener">Open MVP</a>}
                   {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}/toelichting`} target="_blank" rel="noopener">Open uitwerking</a>}
-                  <button className="btn alt small" type="button" onClick={() => void change(p.id, "extend")}>30 dagen verlengen</button>
-                  {!p.disabled_at && <button className="btn alt small" type="button" onClick={() => void change(p.id, "disable")}>Link uitzetten</button>}
-                  {!p.finalized_at && !p.disabled_at && !expired && <button className="btn small" type="button" onClick={() => void finalize(p)}>{confirmFinal === p.id ? "Bevestig: vervang het definitieve voorstel" : "Maak definitief"}</button>}
+                  <BusyButton className="btn alt small" type="button" busyText="Verlengen…" onAction={() => change(p.id, "extend")}>30 dagen verlengen</BusyButton>
+                  {!p.disabled_at && <BusyButton className="btn alt small" type="button" busyText="Uitzetten…" onAction={() => change(p.id, "disable")}>Link uitzetten</BusyButton>}
+                  {!p.finalized_at && !p.disabled_at && !expired && <BusyButton className="btn small" type="button" busyText="Definitief maken…" onAction={() => finalize(p)}>{confirmFinal === p.id ? "Bevestig: vervang het definitieve voorstel" : "Maak definitief"}</BusyButton>}
                 </div>
               </>
             )}
@@ -1056,7 +1080,7 @@ function ImportBox({ onDone }: { onDone: () => Promise<void> }) {
           ))}</tbody>
         </table></div>
       )}
-      {validCount > 0 && <div className="actions"><button className="btn" type="button" onClick={() => void run()}>Importeer {validCount} bedrijven</button></div>}
+      {validCount > 0 && <div className="actions"><BusyButton className="btn" type="button" busyText="Importeren…" onAction={run}>Importeer {validCount} bedrijven</BusyButton></div>}
     </section>
   );
 }
@@ -1064,6 +1088,7 @@ function ImportBox({ onDone }: { onDone: () => Promise<void> }) {
 const STATUS_LABEL: Record<string, [string, string]> = { active: ["Actief", "active"], pending: ["Wacht op goedkeuring", "wait"] };
 
 function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Profile[]; leads: Lead[]; reload: () => Promise<void> }) {
+  const [inviting, setInviting] = useState(false);
   const supabase = useMemo(() => createClient(), []);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -1072,7 +1097,7 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
   const list = profiles.filter((p) => p.status !== "removed").sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"));
 
   async function approve(p: Profile) {
-    const res = await fetch("/api/admin/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id }) });
+    const res = await apiFetch("/api/admin/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id }) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) setMessage({ text: String(data.error ?? "Goedkeuren is niet gelukt."), error: true });
     else if (data.emailSent) setMessage({ text: p.name + " is goedgekeurd en heeft een mail gekregen.", error: false });
@@ -1080,7 +1105,7 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
     await reload();
   }
   async function post(path: string, body: unknown) {
-    const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     return res.ok ? "" : String(data.error ?? "Dat is niet gelukt.");
   }
@@ -1097,7 +1122,10 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
   }
   async function invite(e: React.FormEvent) {
     e.preventDefault();
+    if (inviting) return;
+    setInviting(true);
     const err = await post("/api/admin/invite", { name, email });
+    setInviting(false);
     setMessage(err ? { text: err, error: true } : { text: "Uitnodiging verstuurd naar " + email + ".", error: false });
     if (!err) { setName(""); setEmail(""); await reload(); }
   }
@@ -1108,7 +1136,7 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
       <form className="add-user" onSubmit={(e) => void invite(e)}>
         <div className="q"><label htmlFor="newName">Naam</label><input id="newName" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} /></div>
         <div className="q"><label htmlFor="newMail">E-mailadres</label><input id="newMail" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-        <button className="btn" type="submit">Uitnodigen</button>
+        <BusyButton className="btn" type="submit" busy={inviting} busyText="Uitnodigen…">Uitnodigen</BusyButton>
       </form>
       <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>
       <div className="table-box"><table>
@@ -1122,9 +1150,9 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
               <td><span className={"pill " + cls}>{label}</span></td>
               <td className="num">{leads.filter((l) => l.owner_id === p.id).length}</td>
               <td><div className="user-actions">
-                {p.status === "pending" && <button className="btn small" type="button" onClick={() => void approve(p)}>Goedkeuren</button>}
-                {!isMaster && p.status === "active" && <button className="btn alt small" type="button" onClick={() => { if (confirm !== "2fa" + p.id) setConfirm("2fa" + p.id); else void resetTwoFactor(p); }}>{confirm === "2fa" + p.id ? "Klik nogmaals om 2FA te resetten" : "2FA resetten"}</button>}
-                {!isMaster && <button className="btn alt small" type="button" onClick={() => { if (confirm !== p.id) setConfirm(p.id); else void remove(p); }}>{confirm === p.id ? "Klik nogmaals om te bevestigen" : p.status === "pending" ? "Weigeren" : "Verwijderen"}</button>}
+                {p.status === "pending" && <BusyButton className="btn small" type="button" busyText="Goedkeuren…" onAction={() => approve(p)}>Goedkeuren</BusyButton>}
+                {!isMaster && p.status === "active" && <BusyButton className="btn alt small" type="button" busyText="Resetten…" onAction={() => { if (confirm !== "2fa" + p.id) { setConfirm("2fa" + p.id); return; } return resetTwoFactor(p); }}>{confirm === "2fa" + p.id ? "Klik nogmaals om 2FA te resetten" : "2FA resetten"}</BusyButton>}
+                {!isMaster && <BusyButton className="btn alt small" type="button" busyText="Bezig…" onAction={() => { if (confirm !== p.id) { setConfirm(p.id); return; } return remove(p); }}>{confirm === p.id ? "Klik nogmaals om te bevestigen" : p.status === "pending" ? "Weigeren" : "Verwijderen"}</BusyButton>}
               </div></td>
             </tr>
           );

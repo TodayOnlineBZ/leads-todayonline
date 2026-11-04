@@ -1,4 +1,5 @@
 "use client";
+import BusyButton from "@/components/BusyButton";
 import { useEffect, useState, type FormEvent } from "react";
 import PasswordField from "@/components/PasswordField";
 import { passwordMessage } from "@/lib/password";
@@ -7,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 export default function NewPasswordPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   // Met 2FA vraagt Supabase eerst de code voordat een wachtwoord mag veranderen.
   useEffect(() => {
@@ -19,8 +21,9 @@ export default function NewPasswordPage() {
     e.preventDefault();
     const problem = passwordMessage(password);
     if (problem) { setError(problem); return; }
+    setBusy(true);
     const { error: err } = await createClient().auth.updateUser({ password });
-    if (err) { setError("Opslaan is niet gelukt. Vraag een nieuwe link aan of kies een sterker wachtwoord."); return; }
+    if (err) { setBusy(false); setError("Opslaan is niet gelukt. Vraag een nieuwe link aan of kies een sterker wachtwoord."); return; }
     window.location.href = "/";
   }
 
@@ -29,7 +32,7 @@ export default function NewPasswordPage() {
       <h2>Kies een wachtwoord</h2>
       <PasswordField id="password" label="Nieuw wachtwoord" value={password} onChange={setPassword} hint="Minstens 10 tekens, met 1 cijfer en 1 speciaal teken." checkRules />
       <p className={"status" + (error ? " err" : "")} role="status">{error}</p>
-      <button className="btn" type="submit">Opslaan</button>
+      <BusyButton className="btn" type="submit" busy={busy} busyText="Opslaan…">Opslaan</BusyButton>
     </form>
   );
 }

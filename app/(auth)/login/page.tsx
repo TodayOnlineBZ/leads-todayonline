@@ -1,4 +1,5 @@
 "use client";
+import BusyButton from "@/components/BusyButton";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import Turnstile from "@/components/Turnstile";
@@ -40,7 +41,7 @@ export default function LoginPage() {
       <div className="q"><label htmlFor="password">Wachtwoord</label><input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></div>
       <Turnstile onToken={setToken} resetKey={resetKey} />
       <p className={"status" + (error ? " err" : "")} role="status">{error}</p>
-      <button className="btn" type="submit" disabled={busy}>{busy ? "Bezig met inloggen" : "Inloggen"}</button>
+      <BusyButton className="btn" type="submit" busy={busy} busyText="Inloggen…">Inloggen</BusyButton>
       <p className="switch"><Link className="link" href="/wachtwoord-vergeten">Wachtwoord vergeten?</Link></p>
       <p className="switch">Nog geen account? <Link className="link" href="/registreren">Account aanmaken</Link></p>
     </form>

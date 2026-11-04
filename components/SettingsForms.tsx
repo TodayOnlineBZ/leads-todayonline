@@ -1,4 +1,5 @@
 "use client";
+import BusyButton from "@/components/BusyButton";
 import { useState, type FormEvent } from "react";
 import PasswordField from "@/components/PasswordField";
 import { passwordMessage } from "@/lib/password";
@@ -69,7 +70,7 @@ export default function SettingsForms({ name, email, pendingEmail, result }: { n
         <h2 id="emailTitle">E-mailadres wijzigen</h2>
         <div className="q"><label htmlFor="newEmail">Nieuw e-mailadres</label><input id="newEmail" type="email" autoComplete="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} /></div>
         <PasswordField id="emailPassword" label="Huidig wachtwoord" value={emailPassword} onChange={setEmailPassword} current />
-        <div className="actions"><button className="btn" type="submit" disabled={emailBusy}>{emailBusy ? "Bezig" : "E-mailadres wijzigen"}</button></div>
+        <div className="actions"><BusyButton className="btn" type="submit" busy={emailBusy} busyText="Controleren…">E-mailadres wijzigen</BusyButton></div>
         {emailMessage.text && <p className={"status" + (emailMessage.error ? " err" : "")} id="emailStatus" role="status">{emailMessage.text}</p>}
       </form>
       <form className="notes" aria-labelledby="passwordTitle" noValidate onSubmit={changePassword}>
@@ -77,7 +78,7 @@ export default function SettingsForms({ name, email, pendingEmail, result }: { n
         <PasswordField id="currentPassword" label="Huidig wachtwoord" value={current} onChange={setCurrent} current />
         <PasswordField id="newPassword" label="Nieuw wachtwoord" value={next} onChange={setNext} hint="Minstens 10 tekens, met 1 cijfer en 1 speciaal teken." checkRules />
         <PasswordField id="repeatPassword" label="Herhaal nieuw wachtwoord" value={repeat} onChange={setRepeat} />
-        <div className="actions"><button className="btn" type="submit" disabled={passwordBusy}>{passwordBusy ? "Bezig" : "Wachtwoord wijzigen"}</button></div>
+        <div className="actions"><BusyButton className="btn" type="submit" busy={passwordBusy} busyText="Wijzigen…">Wachtwoord wijzigen</BusyButton></div>
         {passwordResult.text && <p className={"status" + (passwordResult.error ? " err" : "")} id="passwordStatus" role="status">{passwordResult.text}</p>}
       </form>
     </div>

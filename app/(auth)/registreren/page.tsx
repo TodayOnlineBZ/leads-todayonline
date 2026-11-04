@@ -1,4 +1,5 @@
 "use client";
+import BusyButton from "@/components/BusyButton";
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import PasswordField from "@/components/PasswordField";
@@ -59,7 +60,7 @@ export default function SignupPage() {
       <PasswordField id="passwordRepeat" label="Herhaal wachtwoord" value={passwordRepeat} onChange={setPasswordRepeat} />
       <Turnstile onToken={setToken} resetKey={resetKey} />
       <p className={"status" + (error ? " err" : "")} role="status">{error}</p>
-      <button className="btn" type="submit" disabled={busy}>{busy ? "Bezig met aanmaken" : "Account aanmaken"}</button>
+      <BusyButton className="btn" type="submit" busy={busy} busyText="Aanmaken…">Account aanmaken</BusyButton>
       <p className="switch">Heb je al een account? <Link className="link" href="/login">Inloggen</Link></p>
     </form>
   );
