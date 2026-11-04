@@ -197,3 +197,14 @@ main .inner { grid-template-columns: minmax(0, 1fr); }
 }
 .proposal-row .actions a { text-decoration: none; }
 .proposal-row .warn-box ul { margin-top: 6px; }
+.lead-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.lead-head h2 { margin: 0; font: 600 26px/1.15 var(--display); overflow-wrap: anywhere; min-width: 0; }
+.lead-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 20px; }
+.lead-tab { display: inline-flex; align-items: center; gap: 6px; }
+.lead-tab:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.tab-badge { font-size: 12px; line-height: 1; padding: 3px 6px; border-radius: 999px; background: var(--low-bg); color: var(--low-fg); }
+.tab-badge.final, .final-pill { background: var(--high-bg); color: var(--high-fg); }
+.lead-panel { display: grid; gap: 28px; min-width: 0; }
+.lead-panel > * { min-width: 0; }
+.dirty-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; background: var(--notice-bg); color: var(--notice-fg); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; }
+.proposal-row.is-final { outline: 2px solid var(--high-fg); }

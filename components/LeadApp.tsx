@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   answered, BRANCHES, centsToInput, commissionLabel, formatEuro, parseEuroToCents, QUOTE_REQUIRED, SALE_CLASS, SALE_STATUSES, buildPitch, buildPrompt, PITCH_QUESTIONS, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
@@ -14,6 +14,10 @@ type LeadSplit = { sales_percent: number; sales_cents: number; master_percent: n
 type SaleEvent = { id: string; old_status: string; new_status: string; old_amount_cents: number | null; new_amount_cents: number | null; changed_by_name: string; created_at: string; old_owner_name: string | null; new_owner_name: string | null; old_commission_cents: number | null; new_commission_cents: number | null };
 type SearchRow = { id: string; name: string; city: string; phone: string | null; website: string; legal_form: string; source: string; consent: string; do_not_call: boolean; release_count: number; last_release_reason: string | null; province: string; branch: string; lead_id: string | null; owner_id: string | null; owner_name: string | null; owner_status: string | null };
 type View = "form" | "search" | "list" | "users" | "released";
+type LeadTab = "bedrijfsinfo" | "kwalificatie" | "notes" | "voorstel";
+const LEAD_TABS: [LeadTab, string][] = [["bedrijfsinfo", "Bedrijfsinfo"], ["kwalificatie", "Kwalificatie"], ["notes", "Notes"], ["voorstel", "Voorstel"]];
+type ProposalEvent = { id: string; proposal_id: string; kind: string; price_cents: number | null; final_cents: number | null; actor_name: string; created_at: string };
+type ProposalData = { proposals: Proposal[]; events: ProposalEvent[] };
 
 const nlDate = (at: string) => new Date(at).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" });
 const nlDateTime = (at: string) => new Date(at).toLocaleString("nl-NL", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -36,6 +40,10 @@ export default function LeadApp({ me }: { me: Profile }) {
   const [notice, setNotice] = useState("");
   const [pendingOwner, setPendingOwner] = useState<string | null>(null);
   const [pitchQuestion, setPitchQuestion] = useState(0);
+  const [leadTab, setLeadTab] = useState<LeadTab>("bedrijfsinfo");
+  const [confirmDnc, setConfirmDnc] = useState(false);
+  const [proposalData, setProposalData] = useState<ProposalData>({ proposals: [], events: [] });
+  const restoredUrl = useRef(false);
   const nextPitchQuestion = () => setPitchQuestion((old) => old + 1 + Math.floor(Math.random() * (PITCH_QUESTIONS.length - 1)));
 
   const load = useCallback(async () => {
@@ -62,14 +70,41 @@ export default function LeadApp({ me }: { me: Profile }) {
   const activeUsers = profiles.filter((p) => p.status === "active");
   const waiting = profiles.filter((p) => p.status === "pending").length;
 
+  const dirty = !!current && [...new Set([...Object.keys(values), ...Object.keys(current.values)])].some((k) => (values[k] ?? "") !== (current.values[k] ?? ""));
+
+  // De open lead en tab staan in de URL, zodat verversen en een gedeelde link op dezelfde plek uitkomen.
+  useEffect(() => {
+    if (loading || restoredUrl.current) return;
+    restoredUrl.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const lead = activeLeads.find((l) => l.id === params.get("lead"));
+    if (!lead) { if (params.has("lead")) window.history.replaceState(null, "", window.location.pathname); return; }
+    const tab = params.get("tab") as LeadTab | null;
+    setCurrentId(lead.id); setValues(lead.values); setView("form");
+    if (tab && LEAD_TABS.some(([key]) => key === tab) && (tab !== "voorstel" || master)) setLeadTab(tab);
+  }, [loading, activeLeads, master]);
+  useEffect(() => {
+    if (!restoredUrl.current) return;
+    const open = view === "form" && currentId;
+    const target = open ? `?lead=${currentId}&tab=${leadTab}` : window.location.pathname;
+    if (window.location.search !== (open ? target : "")) window.history.replaceState(null, "", target);
+  }, [view, currentId, leadTab]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   function go(v: View) { setView(v); window.scrollTo(0, 0); }
   function openLead(lead: Lead, withPrompt = false) {
     setCurrentId(lead.id); setValues(lead.values); setStatus({ text: "", error: false }); setReleasing(false); nextPitchQuestion();
     setPromptText(withPrompt ? buildPrompt(lead.values) : null);
+    setLeadTab(withPrompt ? "kwalificatie" : "bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] });
     go("form");
   }
   function newLead() {
-    setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); nextPitchQuestion(); window.scrollTo(0, 0);
+    setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); setLeadTab("bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] }); nextPitchQuestion(); window.scrollTo(0, 0);
   }
   async function save() {
     if (!(values.organisatie ?? "").trim()) { setStatus({ text: "Vul eerst de naam van de organisatie in.", error: true }); return; }
@@ -78,6 +113,7 @@ export default function LeadApp({ me }: { me: Profile }) {
       : supabase.from("leads").insert({ values, owner_id: me.id }).select("id").single();
     const { data, error } = await query;
     if (error || !data) { setStatus({ text: "Opslaan is niet gelukt. Je antwoorden staan nog hier, dus probeer het opnieuw.", error: true }); return; }
+    if (!currentId) setLeadTab("bedrijfsinfo");
     setCurrentId(data.id);
     await load();
     setStatus({ text: `Opgeslagen: ${values.organisatie} (ranking ${rank}).`, error: false });
@@ -100,6 +136,31 @@ export default function LeadApp({ me }: { me: Profile }) {
 
   const set = (id: string, v: string) => setValues((old) => ({ ...old, [id]: v }));
   let number = 0;
+  const visibleTabs = LEAD_TABS.filter(([key]) => key !== "voorstel" || master);
+  const selectTab = (key: LeadTab) => setLeadTab(key);
+  // Alle panelen blijven gemonteerd en zijn alleen verborgen: zo blijft invoer staan bij het wisselen.
+  const panelProps = (key: LeadTab) => current
+    ? { id: "panel-" + key, role: "tabpanel", "aria-labelledby": "tab-" + key, hidden: leadTab !== key, className: "lead-panel" }
+    : { className: "lead-panel" };
+  function onTabKey(e: React.KeyboardEvent) {
+    const keys = visibleTabs.map(([key]) => key);
+    const at = keys.indexOf(leadTab);
+    const next = e.key === "ArrowRight" ? keys[(at + 1) % keys.length] : e.key === "ArrowLeft" ? keys[(at - 1 + keys.length) % keys.length] : e.key === "Home" ? keys[0] : e.key === "End" ? keys[keys.length - 1] : null;
+    if (!next) return;
+    e.preventDefault();
+    selectTab(next);
+    document.getElementById("tab-" + next)?.focus();
+  }
+  async function blockCurrent() {
+    const company = current?.company;
+    if (!company) return;
+    if (!confirmDnc) { setConfirmDnc(true); return; }
+    setConfirmDnc(false);
+    const { error } = await supabase.rpc("set_do_not_call", { p_company: company.id, p_value: true });
+    if (error) { setStatus({ text: "Markeren is niet gelukt.", error: true }); return; }
+    await load();
+    setStatus({ text: "Dit bedrijf staat nu op niet meer bellen.", error: false });
+  }
 
   return (
     <>
@@ -125,78 +186,117 @@ export default function LeadApp({ me }: { me: Profile }) {
 
         {view === "form" && (
           <div className="inner">
-            <div className="strip"><span>{count} van {TOTAL_QUESTIONS} beantwoord</span><div className="track"><div className="fill" style={{ width: (count / TOTAL_QUESTIONS) * 100 + "%" }} /></div><span className={"pill " + rank}>{rank}</span></div>
-            {master && current && (
-              <div className="owner-box">
-                <label className="lbl" htmlFor="ownerSelect">Salesmedewerker van deze lead</label>
-                <select id="ownerSelect" value={current.owner_id} onChange={(e) => { if (QUOTE_REQUIRED.includes(current.sale_status)) setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
-                  {ownerRemoved(current.owner_id) && <option value={current.owner_id}>{ownerName(current.owner_id)} (verwijderd): kies een nieuwe</option>}
-                  {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-                {pendingOwner && <AssignConfirm leadId={current.id} owner={pendingOwner} ownerLabel={ownerName(pendingOwner)} onCancel={() => setPendingOwner(null)} onConfirm={() => { const owner = pendingOwner; setPendingOwner(null); void reassign(current.id, owner); }} />}
-              </div>
+            {current && (
+              <>
+                <div className="lead-head"><h2>{current.values.organisatie || "Lead"}</h2><span className={"pill " + rank}>{rank}</span></div>
+                <div className="lead-tabs" role="tablist" aria-label="Onderdelen van deze lead" onKeyDown={onTabKey}>
+                  {visibleTabs.map(([key, label]) => (
+                    <button key={key} id={"tab-" + key} className="tab lead-tab" role="tab" type="button" aria-selected={leadTab === key} aria-controls={"panel-" + key} tabIndex={leadTab === key ? 0 : -1} onClick={() => selectTab(key)}>
+                      {label}
+                      {key === "notes" && current.notes.length > 0 && <span className="tab-badge">{current.notes.length}</span>}
+                      {key === "voorstel" && proposalData.proposals.some((p) => p.finalized_at) ? <span className="tab-badge final">Definitief</span> : key === "voorstel" && proposalData.proposals.length > 0 ? <span className="tab-badge">{proposalData.proposals.length}</span> : null}
+                    </button>
+                  ))}
+                </div>
+                {dirty && <div className="dirty-bar" role="status"><span>Je hebt wijzigingen die nog niet zijn opgeslagen.</span><button className="btn small" type="button" onClick={() => void save()}>Opslaan</button></div>}
+              </>
             )}
-            {current && <SalePanel key={current.id} lead={current} master={master} reload={load} />}
-            {current && master && <ProposalPanel key={"proposal-" + current.id} lead={current} />}
-            {current?.company && (
-              <div className="owner-box">
-                <span className="lbl">Herkomst van dit bedrijf</span>
-                <span className="small">Rechtsvorm: {current.company.legal_form} · Bron: {current.company.source} · Toestemming: {current.company.consent}</span>
-                {current.company.release_count > 0 && <span className="small">Eerder {current.company.release_count}× teruggezet. Laatste reden: {current.company.last_release_reason}.</span>}
-                {current.company.do_not_call ? <p className="warn-box">Niet meer bellen: dit bedrijf wil niet meer gebeld worden.</p> : showWarning(current.company) && <p className="warn-box">{WARNING}</p>}
-              </div>
-            )}
-            <Notes me={me} lead={current} reload={load} />
-            <div className="script">
-              <span className="eyebrow">Zo open je het gesprek</span>
-              <p id="pitch">&quot;{buildPitch(values, pitchQuestion)}&quot;</p>
-              <div><button className="link" type="button" onClick={nextPitchQuestion}>Andere openingsvraag</button></div>
+            <div {...panelProps("bedrijfsinfo")}>
+              {current && (
+                <div className="owner-box">
+                  {master ? (
+                    <>
+                      <label className="lbl" htmlFor="ownerSelect">Eigenaar van deze lead</label>
+                      <select id="ownerSelect" value={current.owner_id} onChange={(e) => { if (QUOTE_REQUIRED.includes(current.sale_status)) setPendingOwner(e.target.value); else void reassign(current.id, e.target.value); }}>
+                        {ownerRemoved(current.owner_id) && <option value={current.owner_id}>{ownerName(current.owner_id)} (verwijderd): kies een nieuwe</option>}
+                        {activeUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      {pendingOwner && <AssignConfirm leadId={current.id} owner={pendingOwner} ownerLabel={ownerName(pendingOwner)} onCancel={() => setPendingOwner(null)} onConfirm={() => { const owner = pendingOwner; setPendingOwner(null); void reassign(current.id, owner); }} />}
+                    </>
+                  ) : <><span className="lbl">Eigenaar van deze lead</span><span className="small">{ownerName(current.owner_id)}</span></>}
+                </div>
+              )}
+              {current?.company && (
+                <div className="owner-box">
+                  <span className="lbl">Herkomst van dit bedrijf</span>
+                  <span className="small">Rechtsvorm: {current.company.legal_form} · Bron: {current.company.source} · Toestemming: {current.company.consent}</span>
+                  {current.company.release_count > 0 && <span className="small">Eerder {current.company.release_count}× teruggezet. Laatste reden: {current.company.last_release_reason}.</span>}
+                  {current.company.do_not_call ? <p className="warn-box">Niet meer bellen: dit bedrijf wil niet meer gebeld worden.</p> : showWarning(current.company) && <p className="warn-box">{WARNING}</p>}
+                </div>
+              )}
+              <section className="step">
+                <div className="step-head"><h2>Gegevens</h2></div>
+                <div className="fields">
+                  {INFO_FIELDS.map(([id, label, type]) => (
+                    <div className="q" key={id}><label htmlFor={id}>{label}</label><input id={id} type={type} autoComplete="off" value={values[id] ?? ""} onChange={(e) => set(id, e.target.value)} />
+                      {id === "site" && (values.site ?? "").trim() && <span className="small">Website bekijken: <WebsiteLink value={values.site ?? ""} /></span>}
+                    </div>
+                  ))}
+                  <div className="q"><label htmlFor="provincie">Provincie</label><select id="provincie" value={values.provincie ?? ""} onChange={(e) => set("provincie", e.target.value)}><option value="">Kies een provincie</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
+                  <div className="q"><label htmlFor="branche">Branche</label><select id="branche" value={values.branche ?? ""} onChange={(e) => set("branche", e.target.value)}><option value="">Kies een branche</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
+                </div>
+              </section>
+              {current && <div className="actions">
+                <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>
+                <button className="btn alt" type="button" onClick={() => { newLead(); }}>Nieuw gesprek</button>
+                {current.company_id && !releasing && !QUOTE_REQUIRED.includes(current.sale_status) && <button className="btn alt" type="button" onClick={() => setReleasing(true)}>Terugzetten in de lijst</button>}
+                {master && current.company && !current.company.do_not_call && <button className="btn alt" type="button" onClick={() => void blockCurrent()}>{confirmDnc ? "Klik nogmaals om te bevestigen" : "Markeer als niet meer bellen"}</button>}
+              </div>}
+              {current?.company_id && QUOTE_REQUIRED.includes(current.sale_status) && <p className="hint">Terugzetten kan niet zolang de status {current.sale_status} is. {master ? "Wijzig eerst de verkoopstatus." : "De master moet eerst de status wijzigen."}</p>}
+              {current?.company_id && releasing && !QUOTE_REQUIRED.includes(current.sale_status) && (
+                <ReleasePanel lead={current} onCancel={() => setReleasing(false)} onDone={() => void afterRelease(current)}
+                  beforeRelease={async () => !(await supabase.from("leads").update({ values }).eq("id", current.id)).error} />
+              )}
             </div>
-            <section className="step">
-              <div className="step-head"><h2>Gegevens</h2></div>
-              <div className="fields">
-                {INFO_FIELDS.map(([id, label, type]) => (
-                  <div className="q" key={id}><label htmlFor={id}>{label}</label><input id={id} type={type} autoComplete="off" value={values[id] ?? ""} onChange={(e) => set(id, e.target.value)} /></div>
+            <div {...panelProps("kwalificatie")}>
+              <div className="strip"><span>{count} van {TOTAL_QUESTIONS} beantwoord</span><div className="track"><div className="fill" style={{ width: (count / TOTAL_QUESTIONS) * 100 + "%" }} /></div><span className={"pill " + rank}>{rank}</span></div>
+              <div className="script">
+                <span className="eyebrow">Zo open je het gesprek</span>
+                <p id="pitch">&quot;{buildPitch(values, pitchQuestion)}&quot;</p>
+                <div><button className="link" type="button" onClick={nextPitchQuestion}>Andere openingsvraag</button></div>
+              </div>
+              <div style={{ display: "grid", gap: 28 }}>
+                {STEPS.map((step) => (
+                  <section className="step" key={step.num}>
+                    <div className="step-head"><span className="eyebrow">{step.num}</span><h2>{step.title}</h2><p>{step.intro}</p></div>
+                    {step.questions.map((q) => {
+                      number += 1;
+                      return (
+                        <div className="q" key={q.id}>
+                          <label className="qlabel" htmlFor={q.id}><span className="n">{number}</span><span>{q.q}</span></label>
+                          <p className="hint indent">Let op: {q.hint}</p>
+                          <textarea className="indent-box" id={q.id} value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)} />
+                        </div>
+                      );
+                    })}
+                  </section>
                 ))}
-                <div className="q"><label htmlFor="provincie">Provincie</label><select id="provincie" value={values.provincie ?? ""} onChange={(e) => set("provincie", e.target.value)}><option value="">Kies een provincie</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
-                <div className="q"><label htmlFor="branche">Branche</label><select id="branche" value={values.branche ?? ""} onChange={(e) => set("branche", e.target.value)}><option value="">Kies een branche</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
               </div>
-            </section>
-            <div style={{ display: "grid", gap: 28 }}>
-              {STEPS.map((step) => (
-                <section className="step" key={step.num}>
-                  <div className="step-head"><span className="eyebrow">{step.num}</span><h2>{step.title}</h2><p>{step.intro}</p></div>
-                  {step.questions.map((q) => {
-                    number += 1;
-                    return (
-                      <div className="q" key={q.id}>
-                        <label className="qlabel" htmlFor={q.id}><span className="n">{number}</span><span>{q.q}</span></label>
-                        <p className="hint indent">Let op: {q.hint}</p>
-                        <textarea className="indent-box" id={q.id} value={values[q.id] ?? ""} onChange={(e) => set(q.id, e.target.value)} />
-                      </div>
-                    );
-                  })}
-                </section>
-              ))}
+              <section className="step">
+                <div className="step-head"><span className="eyebrow">Afronden</span><h2>Volgende stap</h2><p>Vraag: &quot;Wat zou je ervan vinden als we op basis van dit gesprek vrijblijvend een eerste ontwerp voor je maken?&quot;</p></div>
+                <div className="q"><label htmlFor="reactie">Reactie op het voorstel</label><textarea id="reactie" value={values.reactie ?? ""} onChange={(e) => set("reactie", e.target.value)} /></div>
+                <div className="q"><label htmlFor="notitie">Overige notities</label><textarea id="notitie" value={values.notitie ?? ""} onChange={(e) => set("notitie", e.target.value)} /></div>
+              </section>
+              <div className="actions">
+                <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>
+                {current && <button className="btn alt" type="button" onClick={() => setPromptText(buildPrompt(values))}>Exporteer als MVP-prompt</button>}
+                <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
+              </div>
+              {promptText !== null && <PromptBox text={promptText} />}
             </div>
-            <section className="step">
-              <div className="step-head"><span className="eyebrow">Afronden</span><h2>Volgende stap</h2><p>Vraag: &quot;Wat zou je ervan vinden als we op basis van dit gesprek vrijblijvend een eerste ontwerp voor je maken?&quot;</p></div>
-              <div className="q"><label htmlFor="reactie">Reactie op het voorstel</label><textarea id="reactie" value={values.reactie ?? ""} onChange={(e) => set("reactie", e.target.value)} /></div>
-              <div className="q"><label htmlFor="notitie">Overige notities</label><textarea id="notitie" value={values.notitie ?? ""} onChange={(e) => set("notitie", e.target.value)} /></div>
-            </section>
-            <div className="actions">
-              <button className="btn" type="button" onClick={() => void save()}>Opslaan</button>
-              {current && <button className="btn alt" type="button" onClick={() => setPromptText(buildPrompt(values))}>Exporteer als MVP-prompt</button>}
-              <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
-              {current?.company_id && !releasing && !QUOTE_REQUIRED.includes(current.sale_status) && <button className="btn alt" type="button" onClick={() => setReleasing(true)}>Terugzetten in de lijst</button>}
-            </div>
-            {current?.company_id && QUOTE_REQUIRED.includes(current.sale_status) && <p className="hint">Terugzetten kan niet zolang de status {current.sale_status} is. {master ? "Wijzig eerst de verkoopstatus." : "De master moet eerst de status wijzigen."}</p>}
-            {current?.company_id && releasing && !QUOTE_REQUIRED.includes(current.sale_status) && (
-              <ReleasePanel lead={current} onCancel={() => setReleasing(false)} onDone={() => void afterRelease(current)}
-                beforeRelease={async () => !(await supabase.from("leads").update({ values }).eq("id", current.id)).error} />
+            {current && (
+              <div {...panelProps("notes")}>
+                <Notes me={me} lead={current} reload={load} />
+                <SalePanel key={current.id} lead={current} master={master} reload={load} />
+                {master && <Timeline events={current.sale_events ?? []} proposalEvents={proposalData.events} />}
+              </div>
+            )}
+            {current && master && (
+              <div {...panelProps("voorstel")}>
+                <ProposalPanel key={"proposal-" + current.id} lead={current} onData={setProposalData} />
+              </div>
             )}
             <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>
-            {promptText !== null && <PromptBox text={promptText} />}
           </div>
         )}
 
@@ -385,7 +485,6 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
   const [amount, setAmount] = useState(centsToInput(lead.quote_amount_cents));
   const [message, setMessage] = useState({ text: "", error: false });
   const [busy, setBusy] = useState(false);
-  const events = [...(lead.sale_events ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   async function save() {
     const cents = parseEuroToCents(amount);
@@ -417,13 +516,21 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
         <div><dt>{master ? commissionLabel(lead.sale_status) + " sales" : commissionLabel(lead.sale_status)}</dt><dd>{lead.commission_cents == null ? "-" : formatEuro(lead.commission_cents) + " (" + Number(lead.commission_percent) + "%)"}</dd></div>
         {master && <div><dt>Aandeel master</dt><dd>{lead.split ? formatEuro(lead.split.master_cents) + " (" + Number(lead.split.master_percent) + "%)" : "-"}</dd></div>}
       </dl>
-      {master && events.length > 0 && (
-        <details className="breakdown">
-          <summary>Geschiedenis ({events.length})</summary>
-          <ul className="note-list">{events.map((e) => (
-            <li key={e.id}><span className="note-meta">{e.changed_by_name} · {nlDateTime(e.created_at)}</span><p className="note-text">{e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : `${e.old_status} → ${e.new_status}`}{e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}{e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}</p></li>
-          ))}</ul>
-        </details>
+    </section>
+  );
+}
+
+function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEvents: ProposalEvent[] }) {
+  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen" };
+  const rows = [
+    ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
+    ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+  return (
+    <section className="notes" aria-labelledby="timelineTitle">
+      <h3 id="timelineTitle">Tijdlijn</h3>
+      {rows.length === 0 ? <p className="hint">Nog geen statuswijzigingen, toewijzingen of voorstellen.</p> : (
+        <ul className="note-list">{rows.map((r) => <li key={r.id}><span className="note-meta">{r.by} · {nlDateTime(r.at)}</span><p className="note-text">{r.text}</p></li>)}</ul>
       )}
     </section>
   );
@@ -737,19 +844,23 @@ function WebsiteLink({ value }: { value: string | null }) {
   return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
 }
 
-type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null };
+type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null };
 const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
 
-function ProposalPanel({ lead }: { lead: Lead }) {
+function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalData) => void }) {
   const supabase = useMemo(() => createClient(), []);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [price, setPrice] = useState(centsToInput(lead.quote_amount_cents));
   const [message, setMessage] = useState({ text: "", error: false });
   const [busy, setBusy] = useState(false);
+  const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
   const fetchProposals = useCallback(async () => {
-    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document").eq("lead_id", lead.id).order("created_at", { ascending: false });
-    if (!error && data) setProposals(data as Proposal[]);
-  }, [supabase, lead.id]);
+    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    if (error || !data) return;
+    setProposals(data as Proposal[]);
+    const log = await supabase.from("lead_proposal_events").select("id, proposal_id, kind, price_cents, final_cents, actor_name, created_at").eq("lead_id", lead.id);
+    onData({ proposals: data as Proposal[], events: (log.data ?? []) as ProposalEvent[] });
+  }, [supabase, lead.id, onData]);
   useEffect(() => { void fetchProposals(); }, [fetchProposals]);
   const isRunning = (p: Proposal) => p.status === "generating" && Date.now() - new Date(p.created_at).getTime() < 6 * 60_000;
   const generating = proposals.some(isRunning);
@@ -772,6 +883,14 @@ function ProposalPanel({ lead }: { lead: Lead }) {
     setMessage(err ? { text: err, error: true } : { text: "Het voorstel wordt gemaakt. Dit kan een paar minuten duren.", error: false });
     await fetchProposals();
   }
+  async function finalize(p: Proposal) {
+    const other = proposals.some((o) => o.finalized_at && o.id !== p.id);
+    if (other && confirmFinal !== p.id) { setConfirmFinal(p.id); return; }
+    setConfirmFinal(null);
+    const { error } = await supabase.rpc("finalize_proposal", { p_id: p.id, p_replace: other });
+    setMessage(error ? { text: "Definitief maken is niet gelukt. Ververs de pagina en probeer het opnieuw.", error: true } : { text: "Dit voorstel is nu definitief. Er is nog niets verstuurd.", error: false });
+    await fetchProposals();
+  }
   async function change(id: string, action: string) {
     const err = await call("PATCH", { id, action });
     setMessage(err ? { text: err, error: true } : { text: action === "extend" ? "De link is 30 dagen geldig vanaf vandaag." : "De link staat uit.", error: false });
@@ -787,10 +906,12 @@ function ProposalPanel({ lead }: { lead: Lead }) {
       </div>
       <div className="actions"><button className="btn" id="createProposal" type="button" disabled={busy || generating} onClick={() => void create()}>{generating ? "Voorstel wordt gemaakt" : "Voorstel maken"}</button></div>
       {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
+      {proposals.length > 1 && <p className="hint">Geschiedenis, nieuwste bovenaan.</p>}
       {proposals.map((p) => {
         const expired = new Date(p.expires_at).getTime() < Date.now();
         return (
-          <div className="owner-box proposal-row" key={p.id}>
+          <div className={"owner-box proposal-row" + (p.finalized_at ? " is-final" : "")} key={p.id}>
+            {p.finalized_at && <span className="small"><span className="pill final-pill">Definitief</span> {p.finalized_by_name} · {nlDateTime(p.finalized_at)}</span>}
             <span className="lbl">{isRunning(p) ? "Bezig met maken" : p.status === "generating" ? "Afgebroken, probeer het opnieuw" : p.status === "failed" ? "Mislukt" : p.disabled_at ? "Link staat uit" : expired ? "Verlopen" : "Klaar om te beoordelen"} · {nlDateTime(p.created_at)}</span>
             {p.status === "failed" && <span className="small">{p.error}</span>}
             {p.status === "ready" && (
@@ -802,6 +923,7 @@ function ProposalPanel({ lead }: { lead: Lead }) {
                   {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}/toelichting`} target="_blank" rel="noopener">Open uitwerking</a>}
                   <button className="btn alt small" type="button" onClick={() => void change(p.id, "extend")}>30 dagen verlengen</button>
                   {!p.disabled_at && <button className="btn alt small" type="button" onClick={() => void change(p.id, "disable")}>Link uitzetten</button>}
+                  {!p.finalized_at && !p.disabled_at && !expired && <button className="btn small" type="button" onClick={() => void finalize(p)}>{confirmFinal === p.id ? "Bevestig: vervang het definitieve voorstel" : "Maak definitief"}</button>}
                 </div>
               </>
             )}
