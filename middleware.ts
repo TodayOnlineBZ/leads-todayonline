@@ -4,6 +4,15 @@ import { isConfigured, supabaseKey, supabaseUrl } from "@/lib/config";
 
 // Ververst de inlogsessie. De echte toegangscontrole zit in de database.
 export async function middleware(request: NextRequest) {
+  // voorstel.todayonline.nl toont alleen voorstellen, nooit de leadtool of de inlog.
+  const host = (request.headers.get("host") ?? "").split(":")[0];
+  if (host === (process.env.PROPOSAL_HOST ?? "voorstel.todayonline.nl")) {
+    const { pathname } = request.nextUrl;
+    if (pathname === "/logo.png") return NextResponse.next();
+    const url = request.nextUrl.clone();
+    url.pathname = pathname === "/" ? "/v/onbekend" : pathname.startsWith("/v/") ? pathname : "/v" + pathname;
+    return NextResponse.rewrite(url);
+  }
   let response = NextResponse.next({ request });
   if (!isConfigured) return response;
   const supabase = createServerClient(supabaseUrl, supabaseKey, {

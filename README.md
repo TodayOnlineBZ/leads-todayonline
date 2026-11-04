@@ -85,6 +85,8 @@ psql -f supabase/migrations/0005_2fa_verplicht.sql
 psql -f supabase/tests/rls_test_5.sql
 psql -f supabase/migrations/0006_commissieverdeling.sql
 psql -f supabase/tests/rls_test_6.sql
+psql -f supabase/migrations/0007_voorstellen.sql
+psql -f supabase/tests/rls_test_7.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.

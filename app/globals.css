@@ -195,3 +195,5 @@ main .inner { grid-template-columns: minmax(0, 1fr); }
   .sale-summary .commission-card { grid-column: span 10; }
   .sale-summary.for-master .commission-card { grid-column: span 5; }
 }
+.proposal-row .actions a { text-decoration: none; }
+.proposal-row .warn-box ul { margin-top: 6px; }

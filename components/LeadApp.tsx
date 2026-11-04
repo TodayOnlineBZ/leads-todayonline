@@ -137,6 +137,7 @@ export default function LeadApp({ me }: { me: Profile }) {
               </div>
             )}
             {current && <SalePanel key={current.id} lead={current} master={master} reload={load} />}
+            {current && master && <ProposalPanel key={"proposal-" + current.id} lead={current} />}
             {current?.company && (
               <div className="owner-box">
                 <span className="lbl">Herkomst van dit bedrijf</span>
@@ -734,6 +735,81 @@ function WebsiteLink({ value }: { value: string | null }) {
   const link = websiteLink(value);
   if (!link) return <>{value || "-"}</>;
   return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
+}
+
+type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null };
+const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
+
+function ProposalPanel({ lead }: { lead: Lead }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [price, setPrice] = useState(centsToInput(lead.quote_amount_cents));
+  const [message, setMessage] = useState({ text: "", error: false });
+  const [busy, setBusy] = useState(false);
+  const fetchProposals = useCallback(async () => {
+    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    if (!error && data) setProposals(data as Proposal[]);
+  }, [supabase, lead.id]);
+  useEffect(() => { void fetchProposals(); }, [fetchProposals]);
+  const isRunning = (p: Proposal) => p.status === "generating" && Date.now() - new Date(p.created_at).getTime() < 6 * 60_000;
+  const generating = proposals.some(isRunning);
+  useEffect(() => {
+    if (!generating) return;
+    const timer = setInterval(() => void fetchProposals(), 5000);
+    return () => clearInterval(timer);
+  }, [generating, fetchProposals]);
+  const call = async (method: string, body: unknown) => {
+    const res = await fetch("/api/admin/proposals", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    return res.ok ? "" : String(data.error ?? "Dat is niet gelukt.");
+  };
+  async function create() {
+    const cents = parseEuroToCents(price);
+    if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul de prijs vóór korting in, bijvoorbeeld 2500.", error: true }); return; }
+    setBusy(true);
+    const err = await call("POST", { leadId: lead.id, priceCents: cents });
+    setBusy(false);
+    setMessage(err ? { text: err, error: true } : { text: "Het voorstel wordt gemaakt. Dit kan een paar minuten duren.", error: false });
+    await fetchProposals();
+  }
+  async function change(id: string, action: string) {
+    const err = await call("PATCH", { id, action });
+    setMessage(err ? { text: err, error: true } : { text: action === "extend" ? "De link is 30 dagen geldig vanaf vandaag." : "De link staat uit.", error: false });
+    await fetchProposals();
+  }
+  const preview = parseEuroToCents(price);
+  return (
+    <section className="notes" aria-labelledby="proposalTitle">
+      <h3 id="proposalTitle">Voorstel</h3>
+      <p className="hint">Maakt een MVP en een persoonlijke uitwerking. Er wordt nog niets naar de klant verstuurd. Elk voorstel gebruikt Claude-tegoed.</p>
+      <div className="q"><label htmlFor="proposalPrice">Prijs vóór korting, exclusief btw</label><input id="proposalPrice" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2500" value={price} onChange={(e) => setPrice(e.target.value)} />
+        {preview !== null && !Number.isNaN(preview) && <p className="hint">Klant betaalt {formatEuro(Math.round(preview * 0.9))} na 10% korting.</p>}
+      </div>
+      <div className="actions"><button className="btn" id="createProposal" type="button" disabled={busy || generating} onClick={() => void create()}>{generating ? "Voorstel wordt gemaakt" : "Voorstel maken"}</button></div>
+      {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
+      {proposals.map((p) => {
+        const expired = new Date(p.expires_at).getTime() < Date.now();
+        return (
+          <div className="owner-box proposal-row" key={p.id}>
+            <span className="lbl">{isRunning(p) ? "Bezig met maken" : p.status === "generating" ? "Afgebroken, probeer het opnieuw" : p.status === "failed" ? "Mislukt" : p.disabled_at ? "Link staat uit" : expired ? "Verlopen" : "Klaar om te beoordelen"} · {nlDateTime(p.created_at)}</span>
+            {p.status === "failed" && <span className="small">{p.error}</span>}
+            {p.status === "ready" && (
+              <>
+                <span className="small">Prijs {formatEuro(p.price_cents)}, na korting {formatEuro(p.final_cents)}. Geldig tot {nlDate(p.expires_at)}. MVP {p.view_count}× geopend, ook door jou. {Number(p.input_tokens).toLocaleString("nl-NL")} tokens invoer, {Number(p.output_tokens).toLocaleString("nl-NL")} uitvoer.</span>
+                {!!p.document?.open_punten?.length && <div className="warn-box"><b>Controleer dit:</b><ul className="steps-2fa">{p.document.open_punten.map((o, i) => <li key={i}>{o}</li>)}</ul></div>}
+                <div className="actions">
+                  {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}`} target="_blank" rel="noopener">Open MVP</a>}
+                  {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}/toelichting`} target="_blank" rel="noopener">Open uitwerking</a>}
+                  <button className="btn alt small" type="button" onClick={() => void change(p.id, "extend")}>30 dagen verlengen</button>
+                  {!p.disabled_at && <button className="btn alt small" type="button" onClick={() => void change(p.id, "disable")}>Link uitzetten</button>}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
 }
 
 function ImportBox({ onDone }: { onDone: () => Promise<void> }) {
