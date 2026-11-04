@@ -51,10 +51,27 @@ export const WARNING = "Niet bellen zonder aantoonbare toestemming.";
 export const needsConsent = (legal: string) => /eenmanszaak|^vof$|v\.o\.f|maatschap/i.test(legal ?? "");
 export const showWarning = (c: { legal_form: string; consent: string }) => needsConsent(c.legal_form) && c.consent !== CONSENT_OK;
 
+// Geldt voor de automatische voorstellen én de prompt die je handmatig kopieert.
+export const MVP_DESIGN_RULES = [
+  "OPDRACHT EN OMVANG",
+  "Maak uitsluitend de homepage, ook als hierboven meer pagina's staan genoemd. De MVP moet de organisatie direct laten denken: dit willen wij.",
+  "",
+  "BEELD EN TEKST VAN DE HUIDIGE WEBSITE",
+  "Gebruik de echte foto's en het logo van de huidige website, met hun volledige https-adres. De bezoeker moet meteen hun eigen bedrijf herkennen. Gebruik alleen adressen die echt bestaan op die website, nooit stockfoto's of verzonnen adressen.",
+  "Baseer de teksten op de inhoud van de huidige website. Herschrijf ze scherper en overtuigender, maar voeg geen feiten toe. Neem de merkkleuren mee als startpunt en til ze naar een hoger niveau.",
+  "Ontbreekt een foto of gegeven, gebruik dan een duidelijk gemarkeerde plaatshouder.",
+  "",
+  "WOW-FACTOR, NIET AI-ACHTIG",
+  "Het resultaat moet eruitzien als het werk van een sterk ontwerpbureau: modern, eigenzinnig en met één duidelijk ontwerpidee dat alleen bij dit bedrijf past. Grote, goed uitgesneden fotografie draagt de pagina.",
+  "Baseer de opbouw op wat in deze branche aantoonbaar goed werkt: wat bezoekers hier als eerste willen zien, welk bewijs vertrouwen wekt en welke actie past. Maak de gewenste actie overal makkelijk.",
+  "Gebruik een karaktervolle lettercombinatie via Google Fonts, sterke contrasten in formaat, een doordacht raster met bewuste asymmetrie en royale witruimte. Voeg subtiele beweging toe die iets toevoegt, zoals scroll-onthullingen en hover-details, en respecteer prefers-reduced-motion. Mobiel moet even sterk zijn.",
+  "Vermijd alles wat naar een AI-template ruikt: paars-blauwe gradiënten, glaseffecten, een pil-label boven de kop, emoji als icoon, drie gelijke kaartjes met icoontjes, de standaardvolgorde hero-features-testimonials-CTA, overal dezelfde afgeronde kaarten met schaduw, Inter als enige lettertype, loze cijferblokken, en holle zinnen als \"Welkom bij\", \"Ontdek\" of \"Jouw partner in\".",
+].join("\n");
+
 export function buildPrompt(v: Values) {
   const a = (id: string) => (v[id] ?? "").trim() || "nog niet bekend";
   return [
-    "Bouw een interactieve MVP van een website voor onderstaande organisatie. Gebruik alleen de informatie uit deze briefing.",
+    "Bouw een interactieve MVP van de homepage voor onderstaande organisatie. Gebruik alleen de informatie uit deze briefing en van de huidige website.",
     'Verzin geen feiten, cijfers, klantquotes, projecten of contactgegevens. Waar "nog niet bekend" staat, gebruik je een duidelijk gemarkeerde plaatshouder.',
     "",
     "BEDRIJFSGEGEVENS",
@@ -92,6 +109,8 @@ export function buildPrompt(v: Values) {
     "Aantal pagina's: " + a("v14"),
     "Functies: " + a("v15"),
     "Contentafspraken: " + a("v17"),
+    "",
+    MVP_DESIGN_RULES,
   ].join("\n");
 }
 

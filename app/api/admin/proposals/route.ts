@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { after, NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
-import { generateDocument, generateMvp } from "@/lib/proposalAi";
+import { generateDocument, generateMvp, siteNotes } from "@/lib/proposalAi";
+import { readSite } from "@/lib/siteContent";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster } from "@/lib/supabase/requireMaster";
 
@@ -48,8 +49,10 @@ export async function POST(request: NextRequest) {
   after(async () => {
     try {
       // Eerst de korte tekst: mislukt die, dan is er geen tegoed aan de dure MVP besteed.
-      const doc = await step("Uitwerking", () => generateDocument(values));
-      const mvp = await step("MVP", () => generateMvp(values));
+      const site = await readSite(values.site);
+      const doc = await step("Uitwerking", () => generateDocument(values, site));
+      const mvp = await step("MVP", () => generateMvp(values, site));
+      doc.document.open_punten = [...siteNotes(site, mvp.html), ...doc.document.open_punten];
       await admin.from("proposals").update({
         status: "ready", mvp_html: mvp.html, document: doc.document, error: null,
         input_tokens: (mvp.usage.input_tokens ?? 0) + (doc.usage.input_tokens ?? 0),

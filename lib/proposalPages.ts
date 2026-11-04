@@ -10,7 +10,7 @@ const COMMON_HEADERS = { "Content-Type": "text/html; charset=utf-8", "X-Robots-T
 // De MVP komt van een AI-model: de sandbox isoleert hem volledig van de inlog en de rest van de app.
 export const mvpHeaders = {
   ...COMMON_HEADERS,
-  "Content-Security-Policy": "sandbox allow-scripts allow-popups; default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data:; script-src 'unsafe-inline'; form-action 'none'; base-uri 'none'",
+  "Content-Security-Policy": "sandbox allow-scripts allow-popups; default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: https:; script-src 'unsafe-inline'; form-action 'none'; base-uri 'none'",
 };
 export const pageHeaders = {
   ...COMMON_HEADERS,
