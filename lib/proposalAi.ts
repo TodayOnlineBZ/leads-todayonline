@@ -23,7 +23,12 @@ async function callClaude(body: Record<string, unknown>) {
     body: JSON.stringify({ model: MODEL, ...body }),
     signal: AbortSignal.timeout(270_000),
   });
-  if (!res.ok) throw new Error(res.status === 401 ? "De Claude API-sleutel is ongeldig." : res.status === 429 ? "De Claude API-limiet of het tegoed is bereikt." : `De Claude API gaf status ${res.status}.`);
+  if (!res.ok) {
+    // De melding van de API zelf zegt waarom: tegoed op, limiet bereikt of een ongeldige aanvraag.
+    const detail = await res.json().then((d) => String(d?.error?.message ?? "")).catch(() => "");
+    const label = res.status === 401 ? "De Claude API-sleutel is ongeldig." : `De Claude API gaf status ${res.status}.`;
+    throw new Error(detail ? `${label} ${detail}` : label);
+  }
   const data = (await res.json()) as { content: Block[]; usage?: Usage; stop_reason?: string };
   if (data.stop_reason === "max_tokens") throw new Error("Het antwoord van Claude was te lang en is afgebroken.");
   return { content: data.content, usage: data.usage ?? {} };
