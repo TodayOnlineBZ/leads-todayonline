@@ -14,14 +14,14 @@ export type ProposalDocument = {
 type Usage = { input_tokens?: number; output_tokens?: number };
 type Block = { type: string; text?: string; input?: unknown };
 
-async function callClaude(body: Record<string, unknown>) {
+async function callClaude(body: Record<string, unknown>, timeoutMs: number) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("De Claude API-sleutel ontbreekt in Vercel.");
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({ model: MODEL, ...body }),
-    signal: AbortSignal.timeout(270_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     // De melding van de API zelf zegt waarom: tegoed op, limiet bereikt of een ongeldige aanvraag.
@@ -50,7 +50,7 @@ export async function generateMvp(values: Values) {
     max_tokens: 16000,
     system: MVP_RULES,
     messages: [{ role: "user", content: `<briefing>\n${buildPrompt(values)}\n</briefing>\n\nMaak nu de homepage.` }],
-  });
+  }, 225_000);
   const raw = content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").trim();
   const html = raw.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/, "");
   if (!/<html[\s>]/i.test(html) || !/<\/html>/i.test(html)) throw new Error("Claude gaf geen volledige HTML-pagina terug.");
@@ -89,14 +89,21 @@ const DOC_TOOL = {
 
 export async function generateDocument(values: Values) {
   const answers = DOC_FIELDS.map(([id, label]) => `${label}: ${(values[id] ?? "").trim() || "nog niet bekend"}`).join("\n");
-  const { content, usage } = await callClaude({
-    max_tokens: 3000,
-    system: DOC_RULES,
-    tools: [DOC_TOOL],
-    tool_choice: { type: "tool", name: DOC_TOOL.name },
-    messages: [{ role: "user", content: `<antwoorden>\n${answers}\n</antwoorden>\n\nSchrijf nu de teksten.` }],
-  });
-  const doc = content.find((b) => b.type === "tool_use")?.input as ProposalDocument | undefined;
-  if (!doc || !doc.kop || !doc.voorwoord?.length || doc.voordelen?.length < 3 || doc.aanpak?.length < 1) throw new Error("Claude gaf geen volledige toelichting terug.");
-  return { document: { ...doc, open_punten: doc.open_punten ?? [], deadline: doc.deadline ?? null }, usage };
+  // Dit model staat geen afgedwongen tool toe, dus de opdracht vraagt erom en er is één herkansing.
+  let input_tokens = 0, output_tokens = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { content, usage } = await callClaude({
+      max_tokens: 4000,
+      system: DOC_RULES,
+      tools: [DOC_TOOL],
+      messages: [{ role: "user", content: `<antwoorden>\n${answers}\n</antwoorden>\n\nSchrijf nu de teksten en lever ze aan met de tool ${DOC_TOOL.name}. Antwoord niet met gewone tekst.` }],
+    }, 30_000);
+    input_tokens += usage.input_tokens ?? 0;
+    output_tokens += usage.output_tokens ?? 0;
+    const doc = content.find((b) => b.type === "tool_use")?.input as ProposalDocument | undefined;
+    if (doc?.kop && doc.voorwoord?.length && doc.voordelen?.length >= 3 && doc.aanpak?.length >= 1) {
+      return { document: { ...doc, open_punten: doc.open_punten ?? [], deadline: doc.deadline ?? null }, usage: { input_tokens, output_tokens } };
+    }
+  }
+  throw new Error("Claude gaf geen volledige toelichting terug.");
 }

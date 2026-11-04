@@ -38,7 +38,9 @@ export async function POST(request: NextRequest) {
 
   after(async () => {
     try {
-      const [mvp, doc] = await Promise.all([generateMvp(values), generateDocument(values)]);
+      // Eerst de korte tekst: mislukt die, dan is er geen tegoed aan de dure MVP besteed.
+      const doc = await generateDocument(values);
+      const mvp = await generateMvp(values);
       await admin.from("proposals").update({
         status: "ready", mvp_html: mvp.html, document: doc.document, error: null,
         input_tokens: (mvp.usage.input_tokens ?? 0) + (doc.usage.input_tokens ?? 0),
