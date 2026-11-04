@@ -19,5 +19,8 @@ export default async function Home() {
   if (!user) redirect("/login");
   const { data: profile } = await supabase.from("profiles").select("id, name, email, role, status").eq("id", user.id).maybeSingle();
   if (!profile || profile.status !== "active") redirect("/wachten");
+  // Verplichte tweestapsverificatie. De database dwingt dit ook af na migratie 0005.
+  const { data: level } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (level?.currentLevel !== "aal2") redirect("/2fa");
   return <LeadApp me={profile} />;
 }

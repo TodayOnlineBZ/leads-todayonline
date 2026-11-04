@@ -181,3 +181,6 @@ main .inner { grid-template-columns: minmax(0, 1fr); }
 .auth-top .brand-logo { height: 44px; }
 .site-cell { max-width: 220px; overflow-wrap: anywhere; }
 .site-link { color: var(--orange-text); font-weight: 500; text-decoration: underline; }
+.steps-2fa { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.qr-2fa { display: block; width: 200px; height: 200px; max-width: 100%; background: #ffffff; padding: 8px; border-radius: 8px; }
+.secret-2fa { display: block; overflow-wrap: anywhere; font-size: 14px; padding: 8px 10px; background: var(--tint); border-radius: 6px; margin-top: 6px; }

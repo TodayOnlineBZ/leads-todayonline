@@ -779,6 +779,11 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
     const data = await res.json().catch(() => ({}));
     return res.ok ? "" : String(data.error ?? "Dat is niet gelukt.");
   }
+  async function resetTwoFactor(p: Profile) {
+    const err = await post("/api/admin/reset-2fa", { id: p.id });
+    setConfirm(null);
+    setMessage(err ? { text: err, error: true } : { text: "De 2FA van " + p.name + " is gereset. Bij de volgende keer inloggen stelt deze persoon 2FA opnieuw in.", error: false });
+  }
   async function remove(p: Profile) {
     const err = await post("/api/admin/remove", { id: p.id });
     setConfirm(null);
@@ -813,6 +818,7 @@ function UsersView({ me, profiles, leads, reload }: { me: Profile; profiles: Pro
               <td className="num">{leads.filter((l) => l.owner_id === p.id).length}</td>
               <td><div className="user-actions">
                 {p.status === "pending" && <button className="btn small" type="button" onClick={() => void approve(p)}>Goedkeuren</button>}
+                {!isMaster && p.status === "active" && <button className="btn alt small" type="button" onClick={() => { if (confirm !== "2fa" + p.id) setConfirm("2fa" + p.id); else void resetTwoFactor(p); }}>{confirm === "2fa" + p.id ? "Klik nogmaals om 2FA te resetten" : "2FA resetten"}</button>}
                 {!isMaster && <button className="btn alt small" type="button" onClick={() => { if (confirm !== p.id) setConfirm(p.id); else void remove(p); }}>{confirm === p.id ? "Klik nogmaals om te bevestigen" : p.status === "pending" ? "Weigeren" : "Verwijderen"}</button>}
               </div></td>
             </tr>

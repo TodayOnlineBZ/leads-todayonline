@@ -55,6 +55,16 @@ where email = 'bart@todayonline.nl';
 ### 7. Testen vóór echte gegevens
 Maak twee testaccounts, keur ze goed en controleer dat ze elkaars leads niet kunnen openen.
 
+## Tweestapsverificatie
+Iedereen stelt bij de eerste keer inloggen een authenticator-app in. Telefoon kwijt van een medewerker: gebruik **2FA resetten** bij Gebruikers.
+
+Master-account buitengesloten: verwijder in Supabase bij **Authentication → Users** de MFA-factor van je gebruiker, of voer dit uit in de SQL Editor:
+
+```sql
+delete from auth.mfa_factors
+where user_id = (select id from auth.users where email = 'bart@todayonline.nl');
+```
+
 ## Database bijwerken
 Voer nieuwe migraties uit `supabase/migrations/` één keer uit in de SQL Editor, op volgorde van hun nummer. Doe dat vóór je de bijbehorende code live zet.
 
@@ -71,6 +81,8 @@ psql -f supabase/migrations/0003_filters_naam_rechtsvorm.sql
 psql -f supabase/tests/rls_test_3.sql
 psql -f supabase/migrations/0004_verkoopstatus_en_commissie.sql
 psql -f supabase/tests/rls_test_4.sql
+psql -f supabase/migrations/0005_2fa_verplicht.sql
+psql -f supabase/tests/rls_test_5.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.

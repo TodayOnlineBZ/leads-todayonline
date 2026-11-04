@@ -9,3 +9,9 @@ $$;
 grant usage on schema auth to anon, authenticated;
 grant execute on function auth.uid() to anon, authenticated;
 grant usage on schema public to anon, authenticated;
+
+-- 2FA-niveau van de sessie: standaard aal2, zodat oudere tests hetzelfde blijven werken.
+create function auth.jwt() returns jsonb language sql stable as $$
+  select jsonb_build_object('aal', coalesce(nullif(current_setting('test.aal', true), ''), 'aal2'));
+$$;
+grant execute on function auth.jwt() to anon, authenticated;
