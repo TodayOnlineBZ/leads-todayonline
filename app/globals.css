@@ -179,3 +179,5 @@ main .inner { grid-template-columns: minmax(0, 1fr); }
 .breakdown { min-width: 0; }
 .auth-top .inner { justify-items: center; padding-block: 32px; }
 .auth-top .brand-logo { height: 44px; }
+.site-cell { max-width: 220px; overflow-wrap: anywhere; }
+.site-link { color: var(--orange-text); font-weight: 500; text-decoration: underline; }

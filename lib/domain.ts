@@ -194,3 +194,19 @@ export function parseEuroToCents(input: string): number | null {
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
   return Number.isSafeInteger(cents) && cents > 0 ? cents : NaN;
 }
+
+// Alleen gewone webadressen worden een link; adressen uit een import zijn niet vertrouwd.
+export function websiteLink(raw: string | null | undefined): { href: string; label: string } | null {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(text);
+    if (hasScheme && !/^https?:\/\//i.test(text)) return null;
+    const url = new URL(hasScheme ? text : "https://" + text);
+    if (!url.hostname.includes(".")) return null;
+    const label = (url.hostname + url.pathname).replace(/^www\./, "").replace(/\/$/, "");
+    return { href: url.href, label };
+  } catch {
+    return null;
+  }
+}

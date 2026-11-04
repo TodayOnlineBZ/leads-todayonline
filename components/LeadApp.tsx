@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   answered, BRANCHES, centsToInput, commissionLabel, formatEuro, parseEuroToCents, QUOTE_REQUIRED, SALE_CLASS, SALE_STATUSES, buildPitch, buildPrompt, PITCH_QUESTIONS, CSV_COLUMNS, PROVINCES, rankOf, rankScore, readCompanyCsv, showWarning, STEPS, TOTAL_QUESTIONS,
-  WARNING, type CsvRow, type SaleStatus, type Values,
+  WARNING, websiteLink, type CsvRow, type SaleStatus, type Values,
 } from "@/lib/domain";
 
 type Profile = { id: string; name: string; email: string; role: string; status: string };
@@ -583,7 +583,7 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
                   <td>{c.city}</td>
                   <td><span className="small">{c.province}</span><span className="small">{c.branch}</span></td>
                   {c.do_not_call ? <td className="blocked">Geblokkeerd</td> : <td className="num">{c.phone || "-"}</td>}
-                  <td>{c.website || "-"}</td>
+                  <td className="site-cell"><WebsiteLink value={c.website} /></td>
                   <td>{c.legal_form}</td>
                   <td><span className="small">Bron: {c.source}</span><span className="small">Toestemming: {c.consent}</span></td>
                   <td>{c.do_not_call ? <span className="pill dnc">Niet meer bellen</span> : taken ? <span className="pill taken">In behandeling bij {c.owner_name}</span> : <span className="pill free">Beschikbaar</span>}</td>
@@ -700,6 +700,12 @@ function ReleasedView({ leads, ownerName }: { leads: Lead[]; ownerName: (id: str
       )}
     </div>
   );
+}
+
+function WebsiteLink({ value }: { value: string | null }) {
+  const link = websiteLink(value);
+  if (!link) return <>{value || "-"}</>;
+  return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
 }
 
 function ImportBox({ onDone }: { onDone: () => Promise<void> }) {
