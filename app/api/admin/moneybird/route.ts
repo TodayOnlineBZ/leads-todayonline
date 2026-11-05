@@ -16,17 +16,24 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const admin = createAdminClient();
   const { data: p } = await admin.from("proposals")
-    .select("id, lead_id, slug, status, price_cents, discount_percent, final_cents, expires_at, disabled_at, finalized_at, moneybird_status, moneybird_url, lead:leads(values)")
+    .select("id, lead_id, slug, status, price_cents, discount_percent, final_cents, expires_at, disabled_at, finalized_at, moneybird_status, moneybird_url, lead:leads(values, company:companies!leads_company_id_fkey(city))")
     .eq("id", String(body.id ?? "")).maybeSingle();
   if (!p) return fail(404, "Voorstel niet gevonden.");
   if (p.moneybird_status === "draft") return NextResponse.json({ ok: true, url: p.moneybird_url, existing: true });
   if (!p.finalized_at) return fail(400, "Maak dit voorstel eerst definitief.");
   if (!isLive(p)) return fail(400, "Deze link is verlopen of staat uit. Verleng het voorstel eerst.");
-  const values = (p.lead as unknown as { values: Values }).values;
+  const lead = p.lead as unknown as { values: Values; company: { city?: string } | null };
+  // De plaats van een geïmporteerd bedrijf is al bekend, ook als die nog niet bij de lead is opgeslagen.
+  const values: Values = { ...lead.values, plaats: (lead.values.plaats ?? "").trim() || lead.company?.city || "" };
   const company = (values.organisatie ?? "").trim();
   const email = (values.email ?? "").trim();
   if (!company) return fail(400, "De naam van de organisatie ontbreekt. Vul die in bij Bedrijfsinfo.");
   if (!/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)) return fail(400, "Het e-mailadres van dit bedrijf ontbreekt of klopt niet. Vul het in bij Bedrijfsinfo.");
+
+  const kvk = (values.kvk ?? "").replace(/\s/g, "");
+  if (kvk && !/^\d{8}$/.test(kvk)) return fail(400, "Het KvK-nummer moet uit precies 8 cijfers bestaan. Pas het aan bij Bedrijfsinfo.");
+  const missing = [["KvK-nummer", kvk], ["adres", values.adres], ["postcode", values.postcode], ["plaats", values.plaats]].filter(([, v]) => !(v ?? "").trim()).map(([label]) => label as string);
+  if (missing.length && body.allowIncomplete !== true) return NextResponse.json({ needsConfirm: true, missing });
 
   // Eén aanvraag tegelijk: een tweede klik krijgt deze rij niet te pakken. Een vastgelopen poging vervalt na 5 minuten.
   const stale = new Date(Date.now() - 5 * 60_000).toISOString();

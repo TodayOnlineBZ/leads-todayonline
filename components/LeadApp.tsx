@@ -23,7 +23,7 @@ type ProposalData = { proposals: Proposal[]; events: ProposalEvent[] };
 const nlDate = (at: string) => new Date(at).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" });
 const nlDateTime = (at: string) => new Date(at).toLocaleString("nl-NL", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const lastNote = (l: Lead) => [...l.notes].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-const INFO_FIELDS: [string, string, string][] = [["organisatie", "Organisatie (verplicht)", "text"], ["contact", "Contactpersoon", "text"], ["telefoon", "Telefoonnummer", "tel"], ["email", "E-mailadres", "email"], ["site", "Huidige website", "text"]];
+const INFO_FIELDS: [string, string, string][] = [["organisatie", "Organisatie (verplicht)", "text"], ["contact", "Contactpersoon", "text"], ["telefoon", "Telefoonnummer", "tel"], ["email", "E-mailadres", "email"], ["site", "Huidige website", "text"], ["kvk", "KvK-nummer", "text"], ["adres", "Straat en huisnummer", "text"], ["postcode", "Postcode", "text"], ["plaats", "Plaats", "text"]];
 
 type EditTab = "bedrijfsinfo" | "kwalificatie";
 const FIELDS_OF: Record<EditTab, string[]> = {
@@ -36,6 +36,12 @@ function ReadValue({ value }: { value: string | undefined }) {
   const text = (value ?? "").trim();
   return text ? <p className="read-value">{text}</p> : <p className="read-value read-empty">Nog niet ingevuld</p>;
 }
+
+// De plaats van een geïmporteerd bedrijf is al bekend: toon die zolang de lead geen eigen plaats heeft.
+const withKnownCity = (lead: Lead): Lead => {
+  const city = (lead.company as { city?: string } | null)?.city;
+  return !(lead.values.plaats ?? "").trim() && city ? { ...lead, values: { ...lead.values, plaats: city } } : lead;
+};
 
 // Een netwerkfout wordt een gewone foutmelding, en een hangend verzoek stopt vanzelf.
 const apiFetch = (url: string, init: RequestInit) =>
@@ -67,9 +73,9 @@ export default function LeadApp({ me }: { me: Profile }) {
   const nextPitchQuestion = () => setPitchQuestion((old) => old + 1 + Math.floor(Math.random() * (PITCH_QUESTIONS.length - 1)));
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*), sale_events:lead_sale_events(*), split:lead_splits(sales_percent, sales_cents, master_percent, master_cents), archived_company:companies!leads_archived_company_id_fkey(id, do_not_call)");
+    const { data, error } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, city, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*), sale_events:lead_sale_events(*), split:lead_splits(sales_percent, sales_cents, master_percent, master_cents), archived_company:companies!leads_archived_company_id_fkey(id, do_not_call)");
     if (error) { setLoadError("De leads konden niet worden geladen. Ververs de pagina of probeer het later opnieuw."); setLoading(false); return; }
-    setLeads((data ?? []) as unknown as Lead[]);
+    setLeads(((data ?? []) as unknown as Lead[]).map(withKnownCity));
     if (master) {
       const res = await supabase.from("profiles").select("id, name, email, role, status").order("created_at");
       if (res.error) setLoadError("De gebruikers konden niet worden geladen.");
@@ -135,8 +141,11 @@ export default function LeadApp({ me }: { me: Profile }) {
   async function save(tab?: EditTab) {
     const checksName = !tab || tab === "bedrijfsinfo";
     if (checksName && !(values.organisatie ?? "").trim()) { setStatus({ text: "Vul eerst de naam van de organisatie in.", error: true }); return; }
+    const kvk = (values.kvk ?? "").replace(/\s/g, "");
+    if (checksName && kvk && !/^\d{8}$/.test(kvk)) { setStatus({ text: "Een KvK-nummer bestaat uit precies 8 cijfers.", error: true }); return; }
     // Per tab opslaan: een bewerking op de andere tab blijft een concept.
-    const saved = current && tab ? { ...current.values, ...Object.fromEntries(FIELDS_OF[tab].map((k) => [k, values[k] ?? ""])) } : values;
+    const base = current && tab ? { ...current.values, ...Object.fromEntries(FIELDS_OF[tab].map((k) => [k, values[k] ?? ""])) } : values;
+    const saved = checksName ? { ...base, kvk } : base;
     const query = currentId
       ? supabase.from("leads").update({ values: saved }).eq("id", currentId).select("id").single()
       : supabase.from("leads").insert({ values: saved, owner_id: me.id }).select("id").single();
@@ -302,7 +311,7 @@ export default function LeadApp({ me }: { me: Profile }) {
                 ) : (
                   <div className="fields">
                     {INFO_FIELDS.map(([id, label, type]) => (
-                      <div className="q" key={id}><label htmlFor={id}>{label}</label><input id={id} type={type} autoComplete="off" value={values[id] ?? ""} onChange={(e) => set(id, e.target.value)} /></div>
+                      <div className="q" key={id}><label htmlFor={id}>{label}</label><input id={id} type={type} autoComplete="off" inputMode={id === "kvk" ? "numeric" : undefined} value={values[id] ?? ""} onChange={(e) => set(id, e.target.value)} /></div>
                     ))}
                     <div className="q"><label htmlFor="provincie">Provincie</label><select id="provincie" value={values.provincie ?? ""} onChange={(e) => set("provincie", e.target.value)}><option value="">Kies een provincie</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
                     <div className="q"><label htmlFor="branche">Branche</label><select id="branche" value={values.branche ?? ""} onChange={(e) => set("branche", e.target.value)}><option value="">Kies een branche</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
@@ -380,7 +389,7 @@ export default function LeadApp({ me }: { me: Profile }) {
             )}
             {current && master && (
               <div {...panelProps("voorstel")}>
-                <ProposalPanel key={"proposal-" + current.id} lead={current} onData={setProposalData} />
+                <ProposalPanel key={"proposal-" + current.id} lead={current} onData={setProposalData} onFix={() => { setLeadTab("bedrijfsinfo"); startEdit("bedrijfsinfo"); }} />
               </div>
             )}
             {!current && <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>}
@@ -751,9 +760,9 @@ function SearchView({ me, activeUsers, leads, reload, onOpen }: { me: Profile; a
       if (allMode) await fetchRows(); else setRows((old) => (old ?? []).filter((r) => r.id !== row.id));
       return;
     }
-    const { data: lead } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*)").eq("id", data as string).single();
+    const { data: lead } = await supabase.from("leads").select("*, company:companies!leads_company_id_fkey(id, city, legal_form, source, consent, do_not_call, release_count, last_release_reason), notes:lead_notes(*)").eq("id", data as string).single();
     await reload();
-    if (lead) onOpen(lead as unknown as Lead);
+    if (lead) onOpen(withKnownCity(lead as unknown as Lead));
   }
   async function setDnc(row: SearchRow, value: boolean) {
     const { error } = await supabase.rpc("set_do_not_call", { p_company: row.id, p_value: value });
@@ -936,7 +945,7 @@ const QUALITY_LABEL: Record<string, string> = { standaard: "Stand: standaard", c
 type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null };
 const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
 
-function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalData) => void }) {
+function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: ProposalData) => void; onFix: () => void }) {
   const supabase = useMemo(() => createClient(), []);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [price, setPrice] = useState(centsToInput(lead.quote_amount_cents));
@@ -944,6 +953,7 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
   const [busy, setBusy] = useState(false);
   const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
   const [quality, setQuality] = useState("standaard");
+  const [incomplete, setIncomplete] = useState<{ id: string; missing: string[] } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const wasGenerating = useRef(false);
   const fetchProposals = useCallback(async () => {
@@ -993,9 +1003,11 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
     setMessage(error ? { text: "Definitief maken is niet gelukt. Ververs de pagina en probeer het opnieuw.", error: true } : { text: "Dit voorstel is nu definitief. Er is nog niets verstuurd.", error: false });
     await fetchProposals();
   }
-  async function moneybird(p: Proposal) {
-    const res = await apiFetch("/api/admin/moneybird", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id }) });
+  async function moneybird(p: Proposal, allowIncomplete = false) {
+    const res = await apiFetch("/api/admin/moneybird", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, allowIncomplete }) });
     const data = await res.json().catch(() => ({}));
+    if (res.ok && data.needsConfirm) { setIncomplete({ id: p.id, missing: data.missing }); setMessage({ text: "", error: false }); return; }
+    setIncomplete(null);
     setMessage(res.ok ? { text: data.warning ? `Het concept staat in Moneybird. Let op: ${data.warning}` : "Het concept staat in Moneybird. Er is nog niets verstuurd.", error: false } : { text: String(data.error ?? "Het concept kon niet worden gemaakt."), error: true });
     await fetchProposals();
   }
@@ -1037,7 +1049,16 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
                   <BusyButton className="btn alt small" type="button" busyText="Verlengen…" onAction={() => change(p.id, "extend")}>14 dagen verlengen</BusyButton>
                   {!p.disabled_at && <BusyButton className="btn alt small" type="button" busyText="Uitzetten…" onAction={() => change(p.id, "disable")}>Link uitzetten</BusyButton>}
                   {!p.finalized_at && !p.disabled_at && !expired && <BusyButton className="btn small" type="button" busyText="Definitief maken…" onAction={() => finalize(p)}>{confirmFinal === p.id ? "Bevestig: vervang het definitieve voorstel" : "Maak definitief"}</BusyButton>}
-                  {p.finalized_at && !p.moneybird_url && !p.disabled_at && !expired && <BusyButton className="btn small" id="moneybirdDraft" type="button" busyText="Concept maken…" onAction={() => moneybird(p)}>Maak Moneybird-concept</BusyButton>}
+                  {p.finalized_at && !p.moneybird_url && !p.disabled_at && !expired && incomplete?.id !== p.id && <BusyButton className="btn small" id="moneybirdDraft" type="button" busyText="Concept maken…" onAction={() => moneybird(p)}>Maak Moneybird-concept</BusyButton>}
+                  {incomplete?.id === p.id && (
+                    <div className="confirm-box" id="moneybirdIncomplete" role="group" aria-label="Ontbrekende gegevens">
+                      <span className="small">Dit ontbreekt nog voor het Moneybird-contact: {incomplete.missing.join(", ")}.</span>
+                      <div className="actions">
+                        <BusyButton className="btn small" type="button" busyText="Concept maken…" onAction={() => moneybird(p, true)}>Maak toch een concept</BusyButton>
+                        <button className="btn alt small" type="button" onClick={() => { setIncomplete(null); onFix(); }}>Eerst aanvullen</button>
+                      </div>
+                    </div>
+                  )}
                   {p.moneybird_url && <a className="btn alt small" id="moneybirdLink" href={p.moneybird_url} target="_blank" rel="noopener">Open concept in Moneybird</a>}
                 </div>
               </>
