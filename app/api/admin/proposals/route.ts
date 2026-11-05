@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { after, NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
-import { costUsd, generateConcept, generateDocument, generateMvp, QUALITY, type Quality, siteNotes } from "@/lib/proposalAi";
+import { costUsd, partCost, generateConcept, generateDocument, generateMvp, QUALITY, type Quality, siteNotes } from "@/lib/proposalAi";
 import { readSite } from "@/lib/siteContent";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster } from "@/lib/supabase/requireMaster";
@@ -48,6 +48,8 @@ export async function POST(request: NextRequest) {
   }).select("id").single();
   if (error || !proposal) return NextResponse.json({ error: "Het voorstel kon niet worden gestart." }, { status: 500 });
 
+  const { data: creator } = await admin.from("profiles").select("name").eq("id", master.id).maybeSingle();
+  const creatorName = creator?.name ?? "Onbekend";
   after(async () => {
     try {
       // Eerst de korte tekst: mislukt die, dan is er geen tegoed aan de dure MVP besteed.
@@ -65,6 +67,12 @@ export async function POST(request: NextRequest) {
         output_tokens: (mvp.usage.output_tokens ?? 0) + (doc.usage.output_tokens ?? 0) + (concept?.usage.output_tokens ?? 0),
         cost_usd: costUsd(quality, mvp.usage, doc.usage, concept?.usage),
       }).eq("id", proposal.id);
+      // De eerste versies, zodat latere nieuwe versies en terugzetten hetzelfde werken.
+      const { data: firstVersions } = await admin.from("proposal_versions").insert([
+        { proposal_id: proposal.id, part: "mvp", status: "ready", mvp_html: mvp.html, quality, input_tokens: (mvp.usage.input_tokens ?? 0) + (concept?.usage.input_tokens ?? 0), output_tokens: (mvp.usage.output_tokens ?? 0) + (concept?.usage.output_tokens ?? 0), cost_usd: partCost(QUALITY[quality].model, mvp.usage) + partCost(QUALITY.standaard.model, concept?.usage), created_by_name: creatorName },
+        { proposal_id: proposal.id, part: "document", status: "ready", document: doc.document, input_tokens: doc.usage.input_tokens ?? 0, output_tokens: doc.usage.output_tokens ?? 0, cost_usd: partCost(QUALITY.standaard.model, doc.usage), created_by_name: creatorName },
+      ]).select("id, part");
+      if (firstVersions?.length === 2) await admin.from("proposals").update({ current_mvp_version_id: firstVersions.find((v) => v.part === "mvp")?.id, current_document_version_id: firstVersions.find((v) => v.part === "document")?.id }).eq("id", proposal.id);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Onbekende fout.";
       console.error("Voorstel mislukt:", message);

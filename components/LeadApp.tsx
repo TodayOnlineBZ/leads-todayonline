@@ -66,6 +66,7 @@ export default function LeadApp({ me }: { me: Profile }) {
   const [leadTab, setLeadTab] = useState<LeadTab>("bedrijfsinfo");
   const [confirmDnc, setConfirmDnc] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [finalLeads, setFinalLeads] = useState<string[]>([]);
   const [proposalData, setProposalData] = useState<ProposalData>({ proposals: [], events: [] });
   const restoredUrl = useRef(false);
   const [editing, setEditing] = useState<Record<EditTab, boolean>>({ bedrijfsinfo: false, kwalificatie: false });
@@ -80,6 +81,8 @@ export default function LeadApp({ me }: { me: Profile }) {
       const res = await supabase.from("profiles").select("id, name, email, role, status").order("created_at");
       if (res.error) setLoadError("De gebruikers konden niet worden geladen.");
       else setProfiles(res.data as Profile[]);
+      const finals = await supabase.from("proposals").select("lead_id").not("finalized_at", "is", null);
+      if (!finals.error) setFinalLeads((finals.data ?? []).map((row) => row.lead_id as string));
     }
     setLoadError(""); setLoading(false);
   }, [supabase, master]);
@@ -134,6 +137,17 @@ export default function LeadApp({ me }: { me: Profile }) {
     setPromptText(withPrompt ? buildPrompt(lead.values) : null);
     setLeadTab(withPrompt ? "kwalificatie" : "bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] });
     go("form");
+  }
+  function openForBuild(lead: Lead) {
+    openLead(lead);
+    setLeadTab("voorstel");
+    let tries = 0;
+    const timer = setInterval(() => {
+      const box = document.getElementById("doorbouwen");
+      tries += 1;
+      if (box) box.scrollIntoView({ block: "start" });
+      if (box || tries > 20) clearInterval(timer);
+    }, 150);
   }
   function newLead() {
     setCurrentId(null); setValues({}); setStatus({ text: "", error: false }); setPromptText(null); setReleasing(false); setEditing({ bedrijfsinfo: false, kwalificatie: false }); setConfirmCancel(null); setLeadTab("bedrijfsinfo"); setConfirmDnc(false); setProposalData({ proposals: [], events: [] }); nextPitchQuestion(); window.scrollTo(0, 0);
@@ -389,7 +403,7 @@ export default function LeadApp({ me }: { me: Profile }) {
             )}
             {current && master && (
               <div {...panelProps("voorstel")}>
-                <ProposalPanel key={"proposal-" + current.id} lead={current} onData={setProposalData} onFix={() => { setLeadTab("bedrijfsinfo"); startEdit("bedrijfsinfo"); }} />
+                <ProposalPanel key={"proposal-" + current.id} lead={current} onData={(data) => { setProposalData(data); if (data.proposals.some((p) => p.finalized_at)) setFinalLeads((old) => old.includes(current.id) ? old : [...old, current.id]); }} onFix={() => { setLeadTab("bedrijfsinfo"); startEdit("bedrijfsinfo"); }} />
               </div>
             )}
             {!current && <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>}
@@ -397,7 +411,7 @@ export default function LeadApp({ me }: { me: Profile }) {
         )}
 
         {view === "list" && (
-          <ListView me={me} leads={activeLeads} loading={loading} profiles={profiles} ownerName={ownerName} ownerRemoved={ownerRemoved} onOpen={openLead} onReleased={(l) => void afterRelease(l)} notice={notice} />
+          <ListView me={me} leads={activeLeads} loading={loading} profiles={profiles} ownerName={ownerName} ownerRemoved={ownerRemoved} onOpen={openLead} onBuild={openForBuild} finalLeads={finalLeads} onReleased={(l) => void afterRelease(l)} notice={notice} />
         )}
         {view === "search" && (
           <SearchView me={me} activeUsers={activeUsers} leads={activeLeads} reload={load} onOpen={openLead} />
@@ -618,7 +632,7 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
 }
 
 function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEvents: ProposalEvent[] }) {
-  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt" };
+  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", regenerated_mvp: "MVP opnieuw gemaakt", regenerated_document: "Uitwerking opnieuw gemaakt", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
   const rows = [
     ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
     ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
@@ -633,7 +647,7 @@ function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEve
   );
 }
 
-function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpen, onReleased, notice }: { me: Profile; leads: Lead[]; loading: boolean; profiles: Profile[]; ownerName: (id: string) => string; ownerRemoved: (id: string) => boolean; onOpen: (l: Lead, withPrompt?: boolean) => void; onReleased: (l: Lead) => void; notice: string }) {
+function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpen, onBuild, finalLeads, onReleased, notice }: { onBuild: (l: Lead) => void; finalLeads: string[]; me: Profile; leads: Lead[]; loading: boolean; profiles: Profile[]; ownerName: (id: string) => string; ownerRemoved: (id: string) => boolean; onOpen: (l: Lead, withPrompt?: boolean) => void; onReleased: (l: Lead) => void; notice: string }) {
   const master = me.role === "master";
   const [releaseId, setReleaseId] = useState<string | null>(null);
   const releaseLead = releaseId ? leads.find((l) => l.id === releaseId) : undefined;
@@ -642,6 +656,8 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
   const [province, setProvince] = useState("");
   const [branch, setBranch] = useState("");
   const [saleStatus, setSaleStatus] = useState("");
+  const [buildOnly, setBuildOnly] = useState(false);
+  const canBuild = (l: Lead) => finalLeads.includes(l.id) || l.sale_status === "Offerte geaccepteerd";
   const [sort, setSort] = useState<{ key: SortKey; dir: number }>({ key: "rank", dir: -1 });
   const columns: [SortKey, string][] = [["organisatie", "Bedrijf"], ["provincie", "Regio en branche"], ["rank", "Ranking"], ["status", "Verkoopstatus"], ["quote", "Offertebedrag"], ["commission", master ? "Commissie sales" : "Commissie"], ...(master ? [["masterShare", "Aandeel master"] as [SortKey, string], ["owner", "Salesmedewerker"] as [SortKey, string]] : []), ["contactAt", "Laatste contact"]];
   const sortValue = (l: Lead): string | number => {
@@ -660,6 +676,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
   const scoped = leads.filter((l) => !sales || l.owner_id === sales);
   const list = scoped
     .filter((l) => !saleStatus || l.sale_status === saleStatus)
+    .filter((l) => !buildOnly || canBuild(l))
     .filter((l) => !province || l.values.provincie === province)
     .filter((l) => !branch || l.values.branche === branch)
     .filter((l) => !q || ["organisatie", "contact", "telefoon"].some((k) => (l.values[k] ?? "").toLowerCase().includes(q)))
@@ -675,6 +692,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
         <div className="q"><label htmlFor="search">Zoeken</label><input id="search" placeholder="Bedrijf, contact of telefoon" autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
         {master && <div className="q"><label htmlFor="filterSales">Salesmedewerker</label><select id="filterSales" value={sales} onChange={(e) => setSales(e.target.value)}><option value="">Alle salesmedewerkers</option>{salesOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
         <div className="q"><label htmlFor="filterSale">Verkoopstatus</label><select id="filterSale" value={saleStatus} onChange={(e) => setSaleStatus(e.target.value)}><option value="">Alle statussen</option>{SALE_STATUSES.map((v) => <option key={v}>{v}</option>)}</select></div>
+        {master && <div className="q"><label htmlFor="filterBuild">Doorbouwen</label><select id="filterBuild" value={buildOnly ? "1" : ""} onChange={(e) => setBuildOnly(e.target.value === "1")}><option value="">Alle bedrijven</option><option value="1">Definitief voorstel of geaccepteerd</option></select></div>}
         <div className="q"><label htmlFor="filterProv">Provincie</label><select id="filterProv" value={province} onChange={(e) => setProvince(e.target.value)}><option value="">Alle provincies</option>{PROVINCES.map((p) => <option key={p}>{p}</option>)}</select></div>
         <div className="q"><label htmlFor="filterBranch">Branche</label><select id="filterBranch" value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">Alle branches</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
       </div>
@@ -705,6 +723,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
                 <td className="last-note">{note ? <><span className="small">{nlDate(note.created_at)}</span><span>{note.body.length > 60 ? note.body.slice(0, 60).trim() + "..." : note.body}</span></> : "-"}<span className="small">Gewijzigd {nlDate(l.updated_at)}</span></td>
                 <td><div className="row-actions compact">
                   <button className="btn alt small" type="button" onClick={() => onOpen(l, true)}>MVP-prompt</button>
+                  {master && canBuild(l) && <button className="btn small" type="button" data-build={l.id} onClick={() => onBuild(l)}>Doorbouwen</button>}
                   {l.company_id && !QUOTE_REQUIRED.includes(l.sale_status) && <button className="btn alt small" type="button" onClick={() => setReleaseId(l.id)}>Terugzetten in de lijst</button>}
                 </div></td>
               </tr>
@@ -961,7 +980,12 @@ function WebsiteLink({ value }: { value: string | null }) {
 }
 
 const QUALITY_LABEL: Record<string, string> = { standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
-type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null };
+type VersionPart = "mvp" | "document";
+type Version = { id: string; proposal_id: string; part: VersionPart; status: string; wish: string | null; quality: string | null; input_tokens: number; output_tokens: number; cost_usd: number | null; notes: string[]; error: string | null; created_by_name: string; created_at: string };
+const PART_NAME: Record<VersionPart, string> = { mvp: "MVP", document: "Uitwerking" };
+const versionRunning = (v: Version) => v.status === "generating" && Date.now() - new Date(v.created_at).getTime() < 6 * 60_000;
+const usd = (n: number) => `$${n.toFixed(2).replace(".", ",")}`;
+type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null; current_mvp_version_id: string | null; current_document_version_id: string | null };
 const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
 
 function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: ProposalData) => void; onFix: () => void }) {
@@ -975,17 +999,37 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
   const [incomplete, setIncomplete] = useState<{ id: string; missing: string[] } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const wasGenerating = useRef(false);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [regen, setRegen] = useState<{ id: string; part: VersionPart; wish: string; quality: string } | null>(null);
+  const runningVersions = useRef(new Set<string>());
   const fetchProposals = useCallback(async () => {
-    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url, current_mvp_version_id, current_document_version_id").eq("lead_id", lead.id).order("created_at", { ascending: false });
     setLoaded(true);
     if (error || !data) return;
     setProposals(data as Proposal[]);
     const log = await supabase.from("lead_proposal_events").select("id, proposal_id, kind, price_cents, final_cents, actor_name, created_at").eq("lead_id", lead.id);
+    const ids = (data as Proposal[]).map((p) => p.id);
+    if (ids.length) {
+      const list = await supabase.from("proposal_versions").select("id, proposal_id, part, status, wish, quality, input_tokens, output_tokens, cost_usd, notes, error, created_by_name, created_at").in("proposal_id", ids).order("created_at", { ascending: false });
+      if (!list.error) setVersions((list.data ?? []) as Version[]);
+    }
     onData({ proposals: data as Proposal[], events: (log.data ?? []) as ProposalEvent[] });
   }, [supabase, lead.id, onData]);
   useEffect(() => { void fetchProposals(); }, [fetchProposals]);
   const isRunning = (p: Proposal) => p.status === "generating" && Date.now() - new Date(p.created_at).getTime() < 6 * 60_000;
   const generating = proposals.some(isRunning);
+  const polling = generating || versions.some(versionRunning);
+  // Zodra een onderdeel klaar of mislukt is, verschijnt het resultaat.
+  useEffect(() => {
+    for (const id of runningVersions.current) {
+      const v = versions.find((x) => x.id === id);
+      if (v && !versionRunning(v)) {
+        runningVersions.current.delete(id);
+        setMessage(v.status === "ready" ? { text: `${PART_NAME[v.part]} is opnieuw gemaakt en staat nu online.`, error: false } : { text: `${PART_NAME[v.part]} opnieuw maken is mislukt. De vorige versie blijft staan. ${v.error ?? ""}`.trim(), error: true });
+      }
+    }
+    versions.filter(versionRunning).forEach((v) => runningVersions.current.add(v.id));
+  }, [versions]);
   // Zodra een lopend voorstel klaar of mislukt is, vervangt het resultaat de wachtmelding.
   useEffect(() => {
     if (wasGenerating.current && !generating) {
@@ -994,10 +1038,10 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
     wasGenerating.current = generating;
   }, [generating, proposals]);
   useEffect(() => {
-    if (!generating) return;
+    if (!polling) return;
     const timer = setInterval(() => void fetchProposals(), 5000);
     return () => clearInterval(timer);
-  }, [generating, fetchProposals]);
+  }, [polling, fetchProposals]);
   const call = async (method: string, body: unknown) => {
     const res = await apiFetch("/api/admin/proposals", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
@@ -1030,6 +1074,26 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
     setMessage(res.ok ? { text: data.warning ? `Het concept staat in Moneybird. Let op: ${data.warning}` : "Het concept staat in Moneybird. Er is nog niets verstuurd.", error: false } : { text: String(data.error ?? "Het concept kon niet worden gemaakt."), error: true });
     await fetchProposals();
   }
+  async function startRegen() {
+    if (!regen) return;
+    const res = await apiFetch("/api/admin/proposals/regenerate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(regen) });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) { runningVersions.current.add(data.id); setRegen(null); setMessage({ text: "", error: false }); } else setMessage({ text: String(data.error ?? "Opnieuw maken kon niet starten."), error: true });
+    await fetchProposals();
+  }
+  async function restore(v: Version) {
+    const res = await apiFetch("/api/admin/proposals/regenerate", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId: v.id }) });
+    const data = await res.json().catch(() => ({}));
+    setMessage(res.ok ? { text: `Deze versie van de ${v.part === "mvp" ? "MVP" : "uitwerking"} staat weer online.`, error: false } : { text: String(data.error ?? "Terugzetten is niet gelukt."), error: true });
+    await fetchProposals();
+  }
+  async function copyFrom(url: string, label: string) {
+    const res = await apiFetch(url, { method: "GET" });
+    if (!res.ok) { setMessage({ text: "Ophalen is niet gelukt. Probeer het opnieuw.", error: true }); return; }
+    const text = await res.text();
+    try { await navigator.clipboard.writeText(text); setMessage({ text: `${label} staat op je klembord.`, error: false }); }
+    catch { setMessage({ text: "Kopiëren is niet gelukt. Gebruik de downloadknop.", error: true }); }
+  }
   async function change(id: string, action: string) {
     const err = await call("PATCH", { id, action });
     setMessage(err ? { text: err, error: true } : { text: action === "extend" ? "De link is 14 dagen geldig vanaf vandaag." : "De link staat uit.", error: false });
@@ -1052,6 +1116,10 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
       {proposals.length > 1 && <p className="hint">Geschiedenis, nieuwste bovenaan.</p>}
       {proposals.map((p) => {
         const expired = new Date(p.expires_at).getTime() < Date.now();
+        const fixed = !!p.finalized_at || !!p.moneybird_url;
+        const own = versions.filter((v) => v.proposal_id === p.id);
+        const totalCost = own.reduce((sum, v) => sum + Number(v.cost_usd ?? 0), 0);
+        const previewUrl = (part: VersionPart, extra = "") => `/api/admin/proposals/preview?proposal=${p.id}&part=${part}${extra}`;
         return (
           <div className={"owner-box proposal-row" + (p.finalized_at ? " is-final" : "")} key={p.id}>
             {p.finalized_at && <span className="small"><span className="pill final-pill">Definitief</span> {p.finalized_by_name} · {nlDateTime(p.finalized_at)}</span>}
@@ -1061,6 +1129,7 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
             {p.status === "ready" && (
               <>
                 <span className="small">Prijs {formatEuro(p.price_cents)}, na korting {formatEuro(p.final_cents)}. Geldig tot {nlDate(p.expires_at)}. MVP {p.view_count}× geopend, ook door jou. {Number(p.input_tokens).toLocaleString("nl-NL")} tokens invoer, {Number(p.output_tokens).toLocaleString("nl-NL")} uitvoer. {QUALITY_LABEL[p.quality] ?? p.quality}{p.cost_usd != null ? `, ongeveer $${Number(p.cost_usd).toFixed(2).replace(".", ",")}` : ""}.</span>
+                {own.length > 2 && <span className="small" id={"total-" + p.id}>Totaal met nieuwe versies: ongeveer {usd(totalCost)}.</span>}
                 {!!p.document?.open_punten?.length && <div className="warn-box"><b>Controleer dit:</b><ul className="steps-2fa">{p.document.open_punten.map((o, i) => <li key={i}>{o}</li>)}</ul></div>}
                 <div className="actions">
                   {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}`} target="_blank" rel="noopener">Open MVP</a>}
@@ -1080,6 +1149,66 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
                   )}
                   {p.moneybird_url && <a className="btn alt small" id="moneybirdLink" href={p.moneybird_url} target="_blank" rel="noopener">Open concept in Moneybird</a>}
                 </div>
+                <div className="versions">
+                  {fixed && <p className="hint">De inhoud ligt vast, omdat dit voorstel definitief is of een Moneybird-concept heeft. Maak eerst een nieuw voorstel als je iets wilt veranderen.</p>}
+                  {(["mvp", "document"] as VersionPart[]).map((part) => {
+                    const list = own.filter((v) => v.part === part);
+                    const running = list.find(versionRunning);
+                    const currentId = part === "mvp" ? p.current_mvp_version_id : p.current_document_version_id;
+                    const open = regen?.id === p.id && regen.part === part;
+                    return (
+                      <div className="version-part" key={part}>
+                        <div className="version-head">
+                          <b>{PART_NAME[part]}</b>
+                          {running ? <span className="small proposal-running" role="status" data-running={part}><Spinner />Nieuwe versie wordt gemaakt. De vorige blijft online.</span>
+                            : !fixed && !open && <button className="btn alt small" type="button" data-regen={part} onClick={() => setRegen({ id: p.id, part, wish: "", quality: "standaard" })}>{PART_NAME[part]} opnieuw maken</button>}
+                        </div>
+                        {open && !running && regen && (
+                          <div className="confirm-box regen-form">
+                            {part === "mvp" && <div className="q"><label htmlFor={"regenQuality" + p.id}>Kwaliteitsstand</label><select id={"regenQuality" + p.id} value={regen.quality} onChange={(e) => setRegen({ ...regen, quality: e.target.value })}><option value="standaard">Standaard</option><option value="concept">Met ontwerpconcept</option><option value="opus">Met ontwerpconcept en sterker model</option></select></div>}
+                            <div className="q"><label htmlFor={"regenWish" + p.id}>Wat moet er anders? (niet verplicht)</label><textarea id={"regenWish" + p.id} maxLength={1000} placeholder={part === "mvp" ? "Bijvoorbeeld: de hero mag gedurfder" : "Bijvoorbeeld: benoem hun doel om meer offerteaanvragen te krijgen duidelijker"} value={regen.wish} onChange={(e) => setRegen({ ...regen, wish: e.target.value })} /></div>
+                            <p className="hint">Dit gebruikt Claude-tegoed. Het andere onderdeel, de link, de prijs en de einddatum blijven hetzelfde.</p>
+                            <div className="actions"><BusyButton className="btn small" type="button" busyText="Starten…" onAction={startRegen}>Start opnieuw maken</BusyButton><button className="btn alt small" type="button" onClick={() => setRegen(null)}>Annuleren</button></div>
+                          </div>
+                        )}
+                        {list.length > 0 && (
+                          <details className="breakdown">
+                            <summary>Versies ({list.length})</summary>
+                            <ul className="version-list">
+                              {list.map((v) => (
+                                <li key={v.id}>
+                                  <span className="small"><b>{v.id === currentId ? "Huidige versie · " : ""}{nlDateTime(v.created_at)}</b> · {v.created_by_name}{v.quality ? ` · ${QUALITY_LABEL[v.quality] ?? v.quality}` : ""}{v.cost_usd != null ? ` · ongeveer ${usd(Number(v.cost_usd))}` : ""}{v.status === "failed" ? " · Mislukt" : v.status === "generating" && !versionRunning(v) ? " · Afgebroken" : ""}</span>
+                                  {v.wish && <span className="small">Wens: {v.wish}</span>}
+                                  {v.error && <span className="small">{v.error}</span>}
+                                  {v.notes?.map((n, i) => <span className="small" key={i}>Let op: {n}</span>)}
+                                  {v.status === "ready" && <div className="actions">
+                                    <a className="btn alt small" href={previewUrl(part, `&version=${v.id}`)} target="_blank" rel="noopener">Bekijken</a>
+                                    {!fixed && v.id !== currentId && <BusyButton className="btn alt small" type="button" busyText="Terugzetten…" onAction={() => restore(v)}>Terugzetten</BusyButton>}
+                                  </div>}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {p.finalized_at && (
+                  <section className="build-box" id="doorbouwen" aria-labelledby="buildTitle">
+                    <h4 id="buildTitle">Doorbouwen</h4>
+                    <p className="hint">Alles om deze MVP uit te werken tot de echte website. Dit blijft ook werken als de klantlink is verlopen of uitstaat.</p>
+                    <div className="actions">
+                      <a className="btn alt small" href={previewUrl("mvp")} target="_blank" rel="noopener">Open MVP</a>
+                      <a className="btn alt small" href={previewUrl("mvp", "&download=1")}>Download MVP-HTML</a>
+                      <BusyButton className="btn alt small" type="button" busyText="Kopiëren…" onAction={() => copyFrom(previewUrl("mvp"), "De HTML van de MVP")}>Kopieer MVP-HTML</BusyButton>
+                      <a className="btn alt small" href={previewUrl("document")} target="_blank" rel="noopener">Open uitwerking</a>
+                      <a className="btn alt small" href={previewUrl("document", "&download=1")}>Download uitwerking</a>
+                      <BusyButton className="btn alt small" type="button" busyText="Kopiëren…" onAction={() => copyFrom(`/api/admin/proposals/build?proposal=${p.id}&format=prompt`, "De doorbouwprompt")}>Kopieer doorbouwprompt</BusyButton>
+                      <a className="btn small" id="buildZip" href={`/api/admin/proposals/build?proposal=${p.id}`}>Download bouwpakket</a>
+                    </div>
+                  </section>
+                )}
               </>
             )}
           </div>
