@@ -2,10 +2,12 @@ import type { Values } from "@/lib/domain";
 
 const BASE = process.env.MONEYBIRD_API_URL ?? "https://moneybird.com/api/v2";
 
-export const moneybirdReady = () => !!process.env.MONEYBIRD_TOKEN && !!process.env.MONEYBIRD_ADMINISTRATION_ID;
+// Dit id is niet geheim; alleen het token is dat wel.
+const ADMINISTRATION = process.env.MONEYBIRD_ADMINISTRATION_ID ?? "260520987503625612";
+export const moneybirdReady = () => !!process.env.MONEYBIRD_TOKEN;
 
 async function mb<T>(path: string, init?: { method: string; body: unknown }): Promise<T> {
-  const res = await fetch(`${BASE}/${process.env.MONEYBIRD_ADMINISTRATION_ID}${path}`, {
+  const res = await fetch(`${BASE}/${ADMINISTRATION}${path}`, {
     method: init?.method ?? "GET",
     headers: { Authorization: `Bearer ${process.env.MONEYBIRD_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
     body: init ? JSON.stringify(init.body) : undefined,
@@ -69,5 +71,5 @@ export async function createDraftEstimate(input: { contactId: string; company: s
       ...(process.env.MONEYBIRD_LEDGER_ACCOUNT_ID ? { ledger_account_id: process.env.MONEYBIRD_LEDGER_ACCOUNT_ID } : {}),
     }],
   } } });
-  return { id: estimate.id, url: `https://moneybird.com/${process.env.MONEYBIRD_ADMINISTRATION_ID}/estimates/${estimate.id}`, totalExcl: estimate.total_price_excl_tax };
+  return { id: estimate.id, url: `https://moneybird.com/${ADMINISTRATION}/estimates/${estimate.id}`, totalExcl: estimate.total_price_excl_tax };
 }
