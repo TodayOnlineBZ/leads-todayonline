@@ -73,7 +73,7 @@ export async function findOrCreateContact(values: Values, email: string) {
   return { id: created.id, created: true, warning: "" };
 }
 
-export async function createDraftEstimate(input: { contactId: string; company: string; priceCents: number; discountPercent: number; dueDays: number; documentUrl: string }) {
+export async function createDraftEstimate(input: { contactId: string; company: string; priceCents: number; discountPercent: number; dueDays: number; documentUrl: string; mvpUrl: string }) {
   const rates = await mb<{ id: string; percentage: string | null; active?: boolean }[]>(`/tax_rates.json?filter=${encodeURIComponent("percentage:21,tax_rate_type:sales_invoice,active:true")}`);
   const taxRate = rates.find((r) => Number(r.percentage) === 21);
   if (!taxRate) throw new Error("Het btw-tarief van 21% is niet gevonden in Moneybird.");
@@ -84,7 +84,7 @@ export async function createDraftEstimate(input: { contactId: string; company: s
     discount: input.discountPercent,
     first_due_interval: input.dueDays,
     prices_are_incl_tax: false,
-    pre_text: "Geachte {recipient.name},\n\nHierbij ontvangt u van ons de prijsopgave {document.estimate_id} voor de nieuwe website.\n\nIn de persoonlijke uitwerking leest u hoe we het project aanpakken, wat u wanneer kunt verwachten en hoe de eerste opzet van uw homepage eruitziet:\n" + input.documentUrl,
+    pre_text: "Geachte {recipient.name},\n\nHierbij ontvangt u van ons de prijsopgave {document.estimate_id} voor de nieuwe website.\n\nPersoonlijke uitwerking, met onze aanpak en planning:\n" + input.documentUrl + "\n\nEerste opzet van uw nieuwe homepage:\n" + input.mvpUrl,
     post_text: "Betaling: 50% na akkoord op de offerte en 50% na livegang van de website.\n\nOptioneel onderhoud: € 35 per maand, exclusief btw, voor standaard hosting, domeinnaam, onderhoud en wijzigingen waar nodig. Bij grotere aanpassingen nemen we contact op om te kijken wat er precies moet gebeuren. Dit onderhoud is geen onderdeel van het totaalbedrag van deze offerte. Kiest u ervoor, dan wordt het jaarlijks vooraf gefactureerd en voor het eerst meegenomen op de tweede factuur na livegang.\n\nMet vriendelijke groet,\n\nBart Ziemerink\nTodayOnline",
     details_attributes: [{
       description: "Bouw van de website, oplevering en standaard SEO-optimalisatie",

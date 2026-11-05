@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   try {
     const contact = await findOrCreateContact(values, email);
     const dueDays = Math.max(1, Math.ceil((new Date(p.expires_at).getTime() - Date.now()) / DAY));
-    const estimate = await createDraftEstimate({ contactId: contact.id, company, priceCents: Number(p.price_cents), discountPercent: Number(p.discount_percent), dueDays, documentUrl: `${proposalBaseUrl(request)}/${p.slug}/toelichting` });
+    const estimate = await createDraftEstimate({ contactId: contact.id, company, priceCents: Number(p.price_cents), discountPercent: Number(p.discount_percent), dueDays, documentUrl: `${proposalBaseUrl(request)}/${p.slug}/toelichting`, mvpUrl: `${proposalBaseUrl(request)}/${p.slug}` });
     await admin.from("proposals").update({ moneybird_status: "draft", moneybird_estimate_id: estimate.id, moneybird_url: estimate.url }).eq("id", p.id);
     const { data: profile } = await admin.from("profiles").select("name").eq("id", master.id).maybeSingle();
     await admin.from("lead_proposal_events").insert({ lead_id: p.lead_id, proposal_id: p.id, kind: "moneybird_draft", price_cents: p.price_cents, final_cents: p.final_cents, actor_name: profile?.name ?? "Onbekend" });
