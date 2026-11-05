@@ -264,3 +264,6 @@ a.btn { text-decoration: none; display: inline-block; }
   .btn:active:not(:disabled), .tab:active, .icon-btn:active, .sale-card:active { transform: none; }
   .spinner { animation: none; }
 }
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 25, 19, .55); }
+.modal-box { width: 100%; max-width: 560px; max-height: calc(100dvh - 32px); overflow-y: auto; border-radius: 8px; background: var(--bg); }
+.modal-box .release-panel { margin: 0; }

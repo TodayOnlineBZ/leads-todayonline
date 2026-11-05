@@ -679,7 +679,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
         <div className="q"><label htmlFor="filterBranch">Branche</label><select id="filterBranch" value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">Alle branches</option>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></div>
       </div>
       {notice && <p className="status" role="status">{notice}</p>}
-      {releaseLead && <ReleasePanel lead={releaseLead} onCancel={() => setReleaseId(null)} onDone={() => { setReleaseId(null); onReleased(releaseLead); }} />}
+      {releaseLead && <ReleaseDialog lead={releaseLead} onCancel={() => setReleaseId(null)} onDone={() => { setReleaseId(null); onReleased(releaseLead); }} />}
       <div className="table-box"><table>
         <thead><tr>
           {columns.map(([key, label]) => (
@@ -705,7 +705,7 @@ function ListView({ me, leads, loading, profiles, ownerName, ownerRemoved, onOpe
                 <td className="last-note">{note ? <><span className="small">{nlDate(note.created_at)}</span><span>{note.body.length > 60 ? note.body.slice(0, 60).trim() + "..." : note.body}</span></> : "-"}<span className="small">Gewijzigd {nlDate(l.updated_at)}</span></td>
                 <td><div className="row-actions compact">
                   <button className="btn alt small" type="button" onClick={() => onOpen(l, true)}>MVP-prompt</button>
-                  {l.company_id && !QUOTE_REQUIRED.includes(l.sale_status) && <button className="btn alt small" type="button" onClick={() => { setReleaseId(l.id); window.scrollTo(0, 0); }}>Terugzetten in de lijst</button>}
+                  {l.company_id && !QUOTE_REQUIRED.includes(l.sale_status) && <button className="btn alt small" type="button" onClick={() => setReleaseId(l.id)}>Terugzetten in de lijst</button>}
                 </div></td>
               </tr>
             );
@@ -882,6 +882,25 @@ function ReleasePanel({ lead, onCancel, onDone, beforeRelease }: { lead: Lead; o
         <button className="btn alt" type="button" onClick={onCancel}>Annuleren</button>
       </div>
     </section>
+  );
+}
+
+// In de lijst opent dit als venster boven de tabel, zodat je op je plek blijft.
+function ReleaseDialog({ lead, onCancel, onDone }: { lead: Lead; onCancel: () => void; onDone: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    box.current?.querySelector("select")?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); opener?.focus?.({ preventScroll: true }); };
+  }, [onCancel]);
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-box" ref={box} role="dialog" aria-modal="true" aria-labelledby={"release-" + lead.id}>
+        <ReleasePanel lead={lead} onCancel={onCancel} onDone={onDone} />
+      </div>
+    </div>
   );
 }
 
