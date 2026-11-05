@@ -609,7 +609,7 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
 }
 
 function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEvents: ProposalEvent[] }) {
-  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen" };
+  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt" };
   const rows = [
     ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
     ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
@@ -932,7 +932,8 @@ function WebsiteLink({ value }: { value: string | null }) {
   return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
 }
 
-type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null };
+const QUALITY_LABEL: Record<string, string> = { standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
+type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null };
 const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
 
 function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalData) => void }) {
@@ -942,10 +943,11 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
   const [message, setMessage] = useState({ text: "", error: false });
   const [busy, setBusy] = useState(false);
   const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
+  const [quality, setQuality] = useState("standaard");
   const [loaded, setLoaded] = useState(false);
   const wasGenerating = useRef(false);
   const fetchProposals = useCallback(async () => {
-    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url").eq("lead_id", lead.id).order("created_at", { ascending: false });
     setLoaded(true);
     if (error || !data) return;
     setProposals(data as Proposal[]);
@@ -976,7 +978,7 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
     const cents = parseEuroToCents(price);
     if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul de prijs vóór korting in, bijvoorbeeld 2500.", error: true }); return; }
     setBusy(true);
-    const err = await call("POST", { leadId: lead.id, priceCents: cents });
+    const err = await call("POST", { leadId: lead.id, priceCents: cents, quality });
     // Ook een voorstel dat meteen mislukt, moet een resultaatmelding geven.
     if (!err) wasGenerating.current = true;
     setBusy(false);
@@ -991,9 +993,15 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
     setMessage(error ? { text: "Definitief maken is niet gelukt. Ververs de pagina en probeer het opnieuw.", error: true } : { text: "Dit voorstel is nu definitief. Er is nog niets verstuurd.", error: false });
     await fetchProposals();
   }
+  async function moneybird(p: Proposal) {
+    const res = await apiFetch("/api/admin/moneybird", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id }) });
+    const data = await res.json().catch(() => ({}));
+    setMessage(res.ok ? { text: data.warning ? `Het concept staat in Moneybird. Let op: ${data.warning}` : "Het concept staat in Moneybird. Er is nog niets verstuurd.", error: false } : { text: String(data.error ?? "Het concept kon niet worden gemaakt."), error: true });
+    await fetchProposals();
+  }
   async function change(id: string, action: string) {
     const err = await call("PATCH", { id, action });
-    setMessage(err ? { text: err, error: true } : { text: action === "extend" ? "De link is 30 dagen geldig vanaf vandaag." : "De link staat uit.", error: false });
+    setMessage(err ? { text: err, error: true } : { text: action === "extend" ? "De link is 14 dagen geldig vanaf vandaag." : "De link staat uit.", error: false });
     await fetchProposals();
   }
   const preview = parseEuroToCents(price);
@@ -1004,6 +1012,9 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
       <div className="q"><label htmlFor="proposalPrice">Prijs vóór korting, exclusief btw</label><input id="proposalPrice" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2500" value={price} onChange={(e) => setPrice(e.target.value)} />
         {preview !== null && !Number.isNaN(preview) && <p className="hint">Klant betaalt {formatEuro(Math.round(preview * 0.9))} na 10% korting.</p>}
       </div>
+      <div className="q"><label htmlFor="proposalQuality">Kwaliteitsstand</label><select id="proposalQuality" value={quality} onChange={(e) => setQuality(e.target.value)}>
+        <option value="standaard">Standaard</option><option value="concept">Met ontwerpconcept</option><option value="opus">Met ontwerpconcept en sterker model</option>
+      </select><p className="hint">Hogere standen kosten meer tegoed en duren langer. Hieronder zie je per voorstel de kosten, zodat je kunt vergelijken.</p></div>
       <div className="actions"><BusyButton className="btn" id="createProposal" type="button" busy={busy || generating} busyText="Voorstel wordt gemaakt" onClick={() => void create()}>Voorstel maken</BusyButton></div>
       {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
       {!loaded && <LoadingNote text="Voorstellen laden" />}
@@ -1018,14 +1029,16 @@ function ProposalPanel({ lead, onData }: { lead: Lead; onData: (data: ProposalDa
             {p.status === "failed" && <span className="small">{p.error}</span>}
             {p.status === "ready" && (
               <>
-                <span className="small">Prijs {formatEuro(p.price_cents)}, na korting {formatEuro(p.final_cents)}. Geldig tot {nlDate(p.expires_at)}. MVP {p.view_count}× geopend, ook door jou. {Number(p.input_tokens).toLocaleString("nl-NL")} tokens invoer, {Number(p.output_tokens).toLocaleString("nl-NL")} uitvoer.</span>
+                <span className="small">Prijs {formatEuro(p.price_cents)}, na korting {formatEuro(p.final_cents)}. Geldig tot {nlDate(p.expires_at)}. MVP {p.view_count}× geopend, ook door jou. {Number(p.input_tokens).toLocaleString("nl-NL")} tokens invoer, {Number(p.output_tokens).toLocaleString("nl-NL")} uitvoer. {QUALITY_LABEL[p.quality] ?? p.quality}{p.cost_usd != null ? `, ongeveer $${Number(p.cost_usd).toFixed(2).replace(".", ",")}` : ""}.</span>
                 {!!p.document?.open_punten?.length && <div className="warn-box"><b>Controleer dit:</b><ul className="steps-2fa">{p.document.open_punten.map((o, i) => <li key={i}>{o}</li>)}</ul></div>}
                 <div className="actions">
                   {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}`} target="_blank" rel="noopener">Open MVP</a>}
                   {!p.disabled_at && !expired && <a className="btn alt small" href={`${PROPOSAL_BASE}/${p.slug}/toelichting`} target="_blank" rel="noopener">Open uitwerking</a>}
-                  <BusyButton className="btn alt small" type="button" busyText="Verlengen…" onAction={() => change(p.id, "extend")}>30 dagen verlengen</BusyButton>
+                  <BusyButton className="btn alt small" type="button" busyText="Verlengen…" onAction={() => change(p.id, "extend")}>14 dagen verlengen</BusyButton>
                   {!p.disabled_at && <BusyButton className="btn alt small" type="button" busyText="Uitzetten…" onAction={() => change(p.id, "disable")}>Link uitzetten</BusyButton>}
                   {!p.finalized_at && !p.disabled_at && !expired && <BusyButton className="btn small" type="button" busyText="Definitief maken…" onAction={() => finalize(p)}>{confirmFinal === p.id ? "Bevestig: vervang het definitieve voorstel" : "Maak definitief"}</BusyButton>}
+                  {p.finalized_at && !p.moneybird_url && !p.disabled_at && !expired && <BusyButton className="btn small" id="moneybirdDraft" type="button" busyText="Concept maken…" onAction={() => moneybird(p)}>Maak Moneybird-concept</BusyButton>}
+                  {p.moneybird_url && <a className="btn alt small" id="moneybirdLink" href={p.moneybird_url} target="_blank" rel="noopener">Open concept in Moneybird</a>}
                 </div>
               </>
             )}

@@ -62,9 +62,12 @@ export const MVP_DESIGN_RULES = [
   "Ontbreekt een foto of gegeven, gebruik dan een duidelijk gemarkeerde plaatshouder.",
   "",
   "WOW-FACTOR, NIET AI-ACHTIG",
-  "Het resultaat moet eruitzien als het werk van een sterk ontwerpbureau: modern, eigenzinnig en met één duidelijk ontwerpidee dat alleen bij dit bedrijf past. Grote, goed uitgesneden fotografie draagt de pagina.",
-  "Baseer de opbouw op wat in deze branche aantoonbaar goed werkt: wat bezoekers hier als eerste willen zien, welk bewijs vertrouwen wekt en welke actie past. Maak de gewenste actie overal makkelijk.",
-  "Gebruik een karaktervolle lettercombinatie via Google Fonts, sterke contrasten in formaat, een doordacht raster met bewuste asymmetrie en royale witruimte. Voeg subtiele beweging toe die iets toevoegt, zoals scroll-onthullingen en hover-details, en respecteer prefers-reduced-motion. Mobiel moet even sterk zijn.",
+  "De lat: de eigenaar ziet binnen drie seconden dat dit een enorme verbetering is ten opzichte van de huidige website, en wil het direct hebben. Benoem voor jezelf wat er zwak is aan de huidige site en los dat zichtbaar op.",
+  "Werk vanuit één eigen ontwerpidee dat alleen bij dit bedrijf past, afgeleid van hun vak, materiaal, plek of werkwijze. Het idee moet terugkomen in vorm, beeld en beweging. Vervang je de naam door een concurrent en klopt het ontwerp nog, dan is het niet goed genoeg.",
+  "De hero is het hoogtepunt: de sterkste echte foto schermvullend of groot en gedurfd uitgesneden, met een korte, zeer grote kop in een karaktervol lettertype en één duidelijke actie. Geen tekst naast een klein plaatje.",
+  "Behandel fotografie als ontwerpmateriaal: grote uitsneden, overlap met typografie, wisselende formaten en een consequente kleurbehandeling als de foto's onderling verschillen.",
+  "Geef elke sectie een andere opmaak, met sterke contrasten in formaat en ritme, en minstens één donkere of volledig gekleurde sectie. Baseer de volgorde op wat in deze branche overtuigt: wat bezoekers eerst willen zien, welk bewijs vertrouwen wekt en welke actie past. Maak de gewenste actie overal makkelijk.",
+  "Gebruik een karaktervolle lettercombinatie via Google Fonts, een doordacht raster met bewuste asymmetrie en royale witruimte. Voeg één opvallend detail en subtiele beweging toe, zoals scroll-onthullingen, parallax of hover-details, en respecteer prefers-reduced-motion. Mobiel moet even sterk zijn.",
   "Vermijd alles wat naar een AI-template ruikt: paars-blauwe gradiënten, glaseffecten, een pil-label boven de kop, emoji als icoon, drie gelijke kaartjes met icoontjes, de standaardvolgorde hero-features-testimonials-CTA, overal dezelfde afgeronde kaarten met schaduw, Inter als enige lettertype, loze cijferblokken, en holle zinnen als \"Welkom bij\", \"Ontdek\" of \"Jouw partner in\".",
 ].join("\n");
 

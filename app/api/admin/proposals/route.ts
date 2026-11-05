@@ -1,14 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { after, NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
-import { generateDocument, generateMvp, siteNotes } from "@/lib/proposalAi";
+import { costUsd, generateConcept, generateDocument, generateMvp, QUALITY, type Quality, siteNotes } from "@/lib/proposalAi";
 import { readSite } from "@/lib/siteContent";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster } from "@/lib/supabase/requireMaster";
 
 export const maxDuration = 300;
 const DAY = 86_400_000;
-const VALID_DAYS = 30;
+const VALID_DAYS = 14;
 const DISCOUNT_PERCENT = 10;
 const slugify = (text: string) => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "voorstel";
 
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
   const priceCents = Number(body.priceCents);
   if (!Number.isSafeInteger(priceCents) || priceCents <= 0) return NextResponse.json({ error: "Vul een geldige prijs in." }, { status: 400 });
   if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "De Claude API-sleutel ontbreekt nog in Vercel." }, { status: 400 });
+  const quality = (body.quality in QUALITY ? body.quality : "standaard") as Quality;
   const admin = createAdminClient();
   const { data: lead } = await admin.from("leads").select("id, values, archived_at").eq("id", String(body.leadId ?? "")).maybeSingle();
   if (!lead || lead.archived_at) return NextResponse.json({ error: "Deze lead bestaat niet of is teruggezet." }, { status: 404 });
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
     slug: `${slugify(values.organisatie ?? "")}-${randomBytes(8).toString("hex")}`,
     price_cents: priceCents,
     discount_percent: DISCOUNT_PERCENT,
+    quality,
     final_cents: Math.round((priceCents * (100 - DISCOUNT_PERCENT)) / 100),
     expires_at: new Date(Date.now() + VALID_DAYS * DAY).toISOString(),
     created_by: master.id,
@@ -50,13 +52,18 @@ export async function POST(request: NextRequest) {
     try {
       // Eerst de korte tekst: mislukt die, dan is er geen tegoed aan de dure MVP besteed.
       const site = await readSite(values.site);
-      const doc = await step("Uitwerking", () => generateDocument(values, site));
-      const mvp = await step("MVP", () => generateMvp(values, site));
+      // De korte stappen lopen tegelijk, zodat de MVP genoeg van de tijdslimiet overhoudt.
+      const [doc, concept] = await Promise.all([
+        step("Uitwerking", () => generateDocument(values, site)),
+        QUALITY[quality].concept ? generateConcept(values, site).catch((e) => { console.error("Ontwerpconcept mislukt:", e instanceof Error ? e.message : e); return null; }) : null,
+      ]);
+      const mvp = await step("MVP", () => generateMvp(values, site, quality, concept?.text ?? null));
       doc.document.open_punten = [...siteNotes(site, mvp.html), ...doc.document.open_punten];
       await admin.from("proposals").update({
         status: "ready", mvp_html: mvp.html, document: doc.document, error: null,
-        input_tokens: (mvp.usage.input_tokens ?? 0) + (doc.usage.input_tokens ?? 0),
-        output_tokens: (mvp.usage.output_tokens ?? 0) + (doc.usage.output_tokens ?? 0),
+        input_tokens: (mvp.usage.input_tokens ?? 0) + (doc.usage.input_tokens ?? 0) + (concept?.usage.input_tokens ?? 0),
+        output_tokens: (mvp.usage.output_tokens ?? 0) + (doc.usage.output_tokens ?? 0) + (concept?.usage.output_tokens ?? 0),
+        cost_usd: costUsd(quality, mvp.usage, doc.usage, concept?.usage),
       }).eq("id", proposal.id);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Onbekende fout.";

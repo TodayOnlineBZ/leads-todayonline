@@ -92,6 +92,8 @@ psql -f supabase/migrations/0008_definitief_voorstel.sql
 psql -f supabase/tests/rls_test_8.sql
 psql -f supabase/migrations/0009_instellingen.sql
 psql -f supabase/tests/rls_test_9.sql
+psql -f supabase/migrations/0010_moneybird_en_kwaliteit.sql
+psql -f supabase/tests/rls_test_10.sql
 ```
 
 Voer dit nooit uit op de productiedatabase.

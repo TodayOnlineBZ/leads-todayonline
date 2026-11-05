@@ -8,7 +8,7 @@ export async function middleware(request: NextRequest) {
   const host = (request.headers.get("host") ?? "").split(":")[0];
   if (host === (process.env.PROPOSAL_HOST ?? "voorstel.todayonline.nl")) {
     const { pathname } = request.nextUrl;
-    if (pathname === "/logo.png") return NextResponse.next();
+    if (pathname === "/logo.png" || pathname.startsWith("/voorstel/")) return NextResponse.next();
     const url = request.nextUrl.clone();
     url.pathname = pathname === "/" ? "/v/onbekend" : pathname.startsWith("/v/") ? pathname : "/v" + pathname;
     return NextResponse.rewrite(url);
