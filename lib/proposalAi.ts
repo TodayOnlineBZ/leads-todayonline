@@ -1,4 +1,5 @@
 import { buildPrompt, type Values } from "@/lib/domain";
+import type { Maintenance, PlanStep } from "@/lib/proposalDefaults";
 import type { SiteContent } from "@/lib/siteContent";
 
 const API_URL = process.env.ANTHROPIC_API_URL ?? "https://api.anthropic.com/v1/messages";
@@ -22,6 +23,10 @@ export type ProposalDocument = {
   aanpak: { titel: string; tekst: string }[];
   deadline: string | null;
   open_punten: string[];
+  planning?: PlanStep[] | null;
+  planning_intro?: string | null;
+  onderhoud?: Maintenance | null;
+  betaling?: [string, string] | null;
 };
 type Usage = { input_tokens?: number; output_tokens?: number };
 type Block = { type: string; text?: string; input?: unknown };

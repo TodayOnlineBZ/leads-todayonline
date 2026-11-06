@@ -55,8 +55,11 @@ export async function POST(request: NextRequest) {
         Object.assign(result, { mvp_html: mvp.html, notes: siteNotes(site, mvp.html), input_tokens: (mvp.usage.input_tokens ?? 0) + (concept?.usage.input_tokens ?? 0), output_tokens: (mvp.usage.output_tokens ?? 0) + (concept?.usage.output_tokens ?? 0), cost_usd: partCost(QUALITY[quality].model, mvp.usage) + partCost(QUALITY.standaard.model, concept?.usage) });
       } else {
         const doc = await generateDocument(values, site, { wish, previous: wish ? p.document : null });
-        change.document = doc.document;
-        Object.assign(result, { document: doc.document, input_tokens: doc.usage.input_tokens ?? 0, output_tokens: doc.usage.output_tokens ?? 0, cost_usd: partCost(QUALITY.standaard.model, doc.usage) });
+        // Handmatige afspraken blijven staan; Claude schrijft alleen zijn eigen teksten opnieuw.
+        const old = (p.document ?? {}) as Record<string, unknown>;
+        const merged = { ...doc.document, ...Object.fromEntries(["planning", "planning_intro", "onderhoud", "betaling"].filter((k) => old[k] != null).map((k) => [k, old[k]])) };
+        change.document = merged;
+        Object.assign(result, { document: merged, input_tokens: doc.usage.input_tokens ?? 0, output_tokens: doc.usage.output_tokens ?? 0, cost_usd: partCost(QUALITY.standaard.model, doc.usage) });
       }
       // De database weigert dit als het voorstel intussen definitief is geworden.
       const { error: activate } = await admin.from("proposals").update({ ...change, [CURRENT[part]]: version.id }).eq("id", p.id);

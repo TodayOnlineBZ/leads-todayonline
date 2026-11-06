@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import DocumentEditor, { type EditableDocument } from "@/components/DocumentEditor";
 import LeadFiles from "@/components/LeadFiles";
 import { prepareOwnMvp } from "@/components/ownMvp";
 import BusyButton, { LoadingNote, SignOutButton, Spinner } from "@/components/BusyButton";
@@ -635,7 +636,7 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
 }
 
 function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEvents: ProposalEvent[] }) {
-  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", regenerated_mvp: "Nieuwe MVP-versie", regenerated_document: "Uitwerking opnieuw gemaakt", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
+  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", regenerated_mvp: "Nieuwe MVP-versie", regenerated_document: "Nieuwe uitwerking-versie", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
   const rows = [
     ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
     ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
@@ -982,7 +983,7 @@ function WebsiteLink({ value }: { value: string | null }) {
   return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
 }
 
-const QUALITY_LABEL: Record<string, string> = { eigen: "Eigen bestand", standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
+const QUALITY_LABEL: Record<string, string> = { handmatig: "Handmatig aangepast", eigen: "Eigen bestand", standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
 type VersionPart = "mvp" | "document";
 type Version = { id: string; proposal_id: string; part: VersionPart; status: string; wish: string | null; quality: string | null; input_tokens: number; output_tokens: number; cost_usd: number | null; notes: string[]; error: string | null; created_by_name: string; created_at: string };
 const PART_NAME: Record<VersionPart, string> = { mvp: "MVP", document: "Uitwerking" };
@@ -1000,6 +1001,7 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
   const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
   const [quality, setQuality] = useState("standaard");
   const [uploading, setUploading] = useState<string | null>(null);
+  const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [uploadStep, setUploadStep] = useState("");
   const [incomplete, setIncomplete] = useState<{ id: string; missing: string[] } | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -1201,17 +1203,23 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
                           <b>{PART_NAME[part]}</b>
                           {running ? <span className="small proposal-running" role="status" data-running={part}><Spinner />Nieuwe versie wordt gemaakt. De vorige blijft online.</span>
                             : !fixed && !open && <span className="edit-bar">
-                              <button className="btn alt small" type="button" data-regen={part} onClick={() => setRegen({ id: p.id, part, wish: "", quality: "standaard" })}>{PART_NAME[part]} opnieuw maken</button>
+                              <button className="btn alt small" type="button" data-regen={part} onClick={() => { setEditingDoc(null); setRegen({ id: p.id, part, wish: "", quality: "standaard" }); }}>{PART_NAME[part]} opnieuw maken</button>
+                              {part === "document" && <button className="btn alt small" id={"editDoc" + p.id} type="button" onClick={() => { setRegen(null); setEditingDoc(p.id); }}>Teksten bewerken</button>}
                               {part === "mvp" && <>
                                 <label className={"btn alt small" + (uploading ? " is-disabled" : "")} htmlFor={"ownMvp" + p.id}>Eigen MVP uploaden</label>
                                 <input id={"ownMvp" + p.id} className="sr-only" type="file" accept=".html,.htm" disabled={!!uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadOwn(f, p.id); }} />
                               </>}
                             </span>}
                         </div>
+                        {part === "document" && editingDoc === p.id && !fixed && !!p.document && (
+                          <DocumentEditor proposalId={p.id} document={p.document as unknown as EditableDocument} onCancel={() => setEditingDoc(null)} onSaved={async () => { setEditingDoc(null); setMessage({ text: "De teksten zijn opgeslagen en staan in de uitwerking. Controleer ze via Open uitwerking.", error: false }); await fetchProposals(); }} />
+                        )}
                         {open && !running && regen && (
                           <div className="confirm-box regen-form">
                             {part === "mvp" && <div className="q"><label htmlFor={"regenQuality" + p.id}>Kwaliteitsstand</label><select id={"regenQuality" + p.id} value={regen.quality} onChange={(e) => setRegen({ ...regen, quality: e.target.value })}><option value="standaard">Standaard</option><option value="concept">Met ontwerpconcept</option><option value="opus">Met ontwerpconcept en sterker model</option></select></div>}
                             <div className="q"><label htmlFor={"regenWish" + p.id}>Wat moet er anders? (niet verplicht)</label><textarea id={"regenWish" + p.id} maxLength={1000} placeholder={part === "mvp" ? "Bijvoorbeeld: de hero mag gedurfder" : "Bijvoorbeeld: benoem hun doel om meer offerteaanvragen te krijgen duidelijker"} value={regen.wish} onChange={(e) => setRegen({ ...regen, wish: e.target.value })} /></div>
+                            {part === "document" && <p className="hint">Claude herschrijft alleen de kop, het voorwoord, "In het kort" en de aanpak. Pas prijzen, planning, onderhoud en betaling aan via Teksten bewerken.</p>}
+                            {part === "document" && /onderhoud|planning|betaling|factuur|kennismak|€|\bprijs\b/i.test(regen.wish) && <p className="warn-box" id="wishWarning">Je wens lijkt over een vast onderdeel te gaan. Dat past Claude niet aan. Gebruik daarvoor Teksten bewerken.</p>}
                             <p className="hint">Dit gebruikt Claude-tegoed. Het andere onderdeel, de link, de prijs en de einddatum blijven hetzelfde.</p>
                             <div className="actions"><BusyButton className="btn small" type="button" busyText="Starten…" onAction={startRegen}>Start opnieuw maken</BusyButton><button className="btn alt small" type="button" onClick={() => setRegen(null)}>Annuleren</button></div>
                           </div>

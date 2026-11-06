@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
 import { createDraftEstimate, findOrCreateContact, moneybirdReady } from "@/lib/moneybird";
+import { offerClosing } from "@/lib/proposalDefaults";
 import { isLive, proposalBaseUrl } from "@/lib/proposalRoute";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster } from "@/lib/supabase/requireMaster";
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const admin = createAdminClient();
   const { data: p } = await admin.from("proposals")
-    .select("id, lead_id, slug, status, price_cents, discount_percent, final_cents, expires_at, disabled_at, finalized_at, moneybird_status, moneybird_url, lead:leads(values, company:companies!leads_company_id_fkey(city))")
+    .select("id, lead_id, slug, status, price_cents, discount_percent, final_cents, expires_at, disabled_at, finalized_at, moneybird_status, moneybird_url, document, lead:leads(values, company:companies!leads_company_id_fkey(city))")
     .eq("id", String(body.id ?? "")).maybeSingle();
   if (!p) return fail(404, "Voorstel niet gevonden.");
   if (p.moneybird_status === "draft") return NextResponse.json({ ok: true, url: p.moneybird_url, existing: true });
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
   try {
     const contact = await findOrCreateContact(values, email);
     const dueDays = Math.max(1, Math.ceil((new Date(p.expires_at).getTime() - Date.now()) / DAY));
-    const estimate = await createDraftEstimate({ contactId: contact.id, company, priceCents: Number(p.price_cents), discountPercent: Number(p.discount_percent), dueDays, documentUrl: `${proposalBaseUrl(request)}/${p.slug}/toelichting`, mvpUrl: `${proposalBaseUrl(request)}/${p.slug}` });
+    const estimate = await createDraftEstimate({ contactId: contact.id, company, priceCents: Number(p.price_cents), discountPercent: Number(p.discount_percent), dueDays, documentUrl: `${proposalBaseUrl(request)}/${p.slug}/toelichting`, mvpUrl: `${proposalBaseUrl(request)}/${p.slug}`, closing: offerClosing(p.document as Parameters<typeof offerClosing>[0]) });
     await admin.from("proposals").update({ moneybird_status: "draft", moneybird_estimate_id: estimate.id, moneybird_url: estimate.url }).eq("id", p.id);
     const { data: profile } = await admin.from("profiles").select("name").eq("id", master.id).maybeSingle();
     await admin.from("lead_proposal_events").insert({ lead_id: p.lead_id, proposal_id: p.id, kind: "moneybird_draft", price_cents: p.price_cents, final_cents: p.final_cents, actor_name: profile?.name ?? "Onbekend" });

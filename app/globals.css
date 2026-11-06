@@ -292,3 +292,8 @@ label.btn { cursor: pointer; display: inline-block; }
 label.btn.is-disabled { opacity: .55; cursor: not-allowed; }
 .sr-only:focus-visible + *, label.btn:has(+ .sr-only:focus-visible) { outline: 2px solid var(--orange); outline-offset: 2px; }
 .own-mvp { align-items: center; }
+.doc-editor { display: grid; gap: 16px; }
+.doc-group { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 12px 0 0; display: grid; gap: 10px; min-width: 0; }
+.doc-group legend { font-weight: 700; padding: 0 8px 0 0; }
+.check-line { display: flex; align-items: center; gap: 8px; }
+.check-line input { width: auto; }
