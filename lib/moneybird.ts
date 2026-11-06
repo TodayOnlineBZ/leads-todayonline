@@ -16,7 +16,7 @@ async function mb<T>(path: string, init?: { method: string; body: unknown }): Pr
   if (!res.ok) {
     const label = res.status === 401 ? "Het Moneybird-token is ongeldig." : res.status === 403 ? "Het Moneybird-token heeft niet genoeg rechten." : res.status === 429 ? "Moneybird krijgt nu te veel verzoeken. Probeer het zo opnieuw." : `Moneybird gaf status ${res.status}.`;
     const detail = await res.json().then((d) => (d?.error ? JSON.stringify(d.error).slice(0, 200) : "")).catch(() => "");
-    throw new Error(detail ? `${label} ${detail}` : label);
+    throw Object.assign(new Error(detail ? `${label} ${detail}` : label), { status: res.status });
   }
   return res.json() as Promise<T>;
 }
@@ -96,3 +96,10 @@ export async function createDraftEstimate(input: { contactId: string; company: s
   } } });
   return { id: estimate.id, url: `https://moneybird.com/${ADMINISTRATION}/estimates/${estimate.id}`, totalExcl: estimate.total_price_excl_tax };
 }
+
+export type Estimate = { id: string; state?: string; total_price_excl_tax?: string | number };
+export const getEstimate = (id: string) => mb<Estimate>(`/estimates/${encodeURIComponent(id)}.json`);
+export const administrationId = ADMINISTRATION;
+export type Webhook = { id: string; url: string; token: string; enabled_events?: string[] };
+export const listWebhooks = () => mb<Webhook[]>("/webhooks.json");
+export const createWebhook = (url: string) => mb<Webhook>("/webhooks.json", { method: "POST", body: { url, enabled_events: ["estimate"] } });

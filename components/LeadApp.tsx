@@ -401,13 +401,13 @@ export default function LeadApp({ me }: { me: Profile }) {
             {current && (
               <div {...panelProps("notes")}>
                 <Notes me={me} lead={current} reload={load} />
-                <SalePanel key={current.id} lead={current} master={master} reload={load} />
+                <SalePanel key={current.id + current.sale_status + (current.quote_amount_cents ?? "")} lead={current} master={master} reload={load} />
                 {master && <Timeline events={current.sale_events ?? []} proposalEvents={proposalData.events} />}
               </div>
             )}
             {current && master && (
               <div {...panelProps("voorstel")}>
-                <ProposalPanel key={"proposal-" + current.id} lead={current} onData={(data) => { setProposalData(data); if (data.proposals.some((p) => p.finalized_at)) setFinalLeads((old) => old.includes(current.id) ? old : [...old, current.id]); }} onFix={() => { setLeadTab("bedrijfsinfo"); startEdit("bedrijfsinfo"); }} />
+                <ProposalPanel key={"proposal-" + current.id} lead={current} reloadLead={load} onData={(data) => { setProposalData(data); if (data.proposals.some((p) => p.finalized_at)) setFinalLeads((old) => old.includes(current.id) ? old : [...old, current.id]); }} onFix={() => { setLeadTab("bedrijfsinfo"); startEdit("bedrijfsinfo"); }} />
               </div>
             )}
             {!current && <p className={"status" + (status.error ? " err" : "")} role="status">{status.text}</p>}
@@ -636,7 +636,7 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
 }
 
 function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEvents: ProposalEvent[] }) {
-  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", regenerated_mvp: "Nieuwe MVP-versie", regenerated_document: "Nieuwe uitwerking-versie", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
+  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", moneybird_sent: "Offerte verstuurd vanuit Moneybird", moneybird_accepted: "Offerte geaccepteerd in Moneybird", moneybird_rejected: "Offerte afgewezen in Moneybird", regenerated_mvp: "Nieuwe MVP-versie", regenerated_document: "Nieuwe uitwerking-versie", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
   const rows = [
     ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
     ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
@@ -983,16 +983,17 @@ function WebsiteLink({ value }: { value: string | null }) {
   return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
 }
 
+const MB_STATE: Record<string, string> = { draft: "concept", open: "verstuurd", late: "verstuurd, vervaldatum voorbij", accepted: "geaccepteerd", rejected: "afgewezen", billed: "gefactureerd", archived: "gearchiveerd" };
 const QUALITY_LABEL: Record<string, string> = { handmatig: "Handmatig aangepast", eigen: "Eigen bestand", standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
 type VersionPart = "mvp" | "document";
 type Version = { id: string; proposal_id: string; part: VersionPart; status: string; wish: string | null; quality: string | null; input_tokens: number; output_tokens: number; cost_usd: number | null; notes: string[]; error: string | null; created_by_name: string; created_at: string };
 const PART_NAME: Record<VersionPart, string> = { mvp: "MVP", document: "Uitwerking" };
 const versionRunning = (v: Version) => v.status === "generating" && Date.now() - new Date(v.created_at).getTime() < 6 * 60_000;
 const usd = (n: number) => `$${n.toFixed(2).replace(".", ",")}`;
-type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null; current_mvp_version_id: string | null; current_document_version_id: string | null };
+type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null; moneybird_state: string | null; moneybird_state_at: string | null; current_mvp_version_id: string | null; current_document_version_id: string | null };
 const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
 
-function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: ProposalData) => void; onFix: () => void }) {
+function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData: (data: ProposalData) => void; onFix: () => void; reloadLead: () => Promise<void> }) {
   const supabase = useMemo(() => createClient(), []);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [price, setPrice] = useState(centsToInput(lead.quote_amount_cents));
@@ -1010,7 +1011,7 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
   const [regen, setRegen] = useState<{ id: string; part: VersionPart; wish: string; quality: string } | null>(null);
   const runningVersions = useRef(new Set<string>());
   const fetchProposals = useCallback(async () => {
-    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url, current_mvp_version_id, current_document_version_id").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url, moneybird_state, moneybird_state_at, current_mvp_version_id, current_document_version_id").eq("lead_id", lead.id).order("created_at", { ascending: false });
     setLoaded(true);
     if (error || !data) return;
     setProposals(data as Proposal[]);
@@ -1023,6 +1024,14 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
     onData({ proposals: data as Proposal[], events: (log.data ?? []) as ProposalEvent[] });
   }, [supabase, lead.id, onData]);
   useEffect(() => { void fetchProposals(); }, [fetchProposals]);
+  // Vangnet als een melding van Moneybird is gemist: bij openen even de stand ophalen.
+  const synced = useRef(false);
+  useEffect(() => {
+    if (synced.current || !proposals.some((p) => p.moneybird_url && !["accepted", "rejected", "billed", "archived"].includes(p.moneybird_state ?? ""))) return;
+    synced.current = true;
+    void fetch("/api/admin/moneybird/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId: lead.id }) })
+      .then((r) => r.json()).then(async (d) => { if (d?.checked) { await fetchProposals(); if (d.changed) await reloadLead(); } }).catch(() => {});
+  }, [proposals, lead.id, fetchProposals, reloadLead]);
   const isRunning = (p: Proposal) => p.status === "generating" && Date.now() - new Date(p.created_at).getTime() < 6 * 60_000;
   const generating = proposals.some(isRunning);
   const polling = generating || versions.some(versionRunning);
@@ -1188,7 +1197,8 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
                       </div>
                     </div>
                   )}
-                  {p.moneybird_url && <a className="btn alt small" id="moneybirdLink" href={p.moneybird_url} target="_blank" rel="noopener">Open concept in Moneybird</a>}
+                  {p.moneybird_url && <a className="btn alt small" id="moneybirdLink" href={p.moneybird_url} target="_blank" rel="noopener">{!p.moneybird_state || p.moneybird_state === "draft" ? "Open concept in Moneybird" : "Open offerte in Moneybird"}</a>}
+                  {p.moneybird_state && MB_STATE[p.moneybird_state] && <span className="small" id={"mbState" + p.id}>Moneybird: {MB_STATE[p.moneybird_state]}{p.moneybird_state_at ? ` · bijgewerkt ${nlDateTime(p.moneybird_state_at)}` : ""}</span>}
                 </div>
                 <div className="versions">
                   {fixed && <p className="hint">De inhoud ligt vast, omdat dit voorstel definitief is of een Moneybird-concept heeft. Maak eerst een nieuw voorstel als je iets wilt veranderen.</p>}
