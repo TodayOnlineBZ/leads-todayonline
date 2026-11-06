@@ -6,6 +6,7 @@ import BusyButton from "@/components/BusyButton";
 export default function MoneybirdLink() {
   const [state, setState] = useState<{ ready: boolean; active: boolean } | null>(null);
   const [message, setMessage] = useState({ text: "", error: false });
+  const [details, setDetails] = useState<string[]>([]);
   useEffect(() => {
     fetch("/api/admin/moneybird/webhook").then(async (r) => {
       const d = await r.json().catch(() => ({}));
@@ -14,11 +15,13 @@ export default function MoneybirdLink() {
   }, []);
   async function connect() {
     setMessage({ text: "", error: false });
+    setDetails([]);
     const r = await fetch("/api/admin/moneybird/webhook", { method: "POST" }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : {};
     if (!r?.ok) { setMessage({ text: String(d.error ?? "Dat is niet gelukt. Probeer het opnieuw."), error: true }); return; }
     const wasActive = state?.active;
     setState({ ready: true, active: true });
+    setDetails(Array.isArray(d.details) ? d.details.map(String) : []);
     setMessage({ text: `${wasActive ? "Bijgewerkt." : "Aangezet."} ${d.checked} offerte${d.checked === 1 ? "" : "s"} gecontroleerd, ${d.changed} verkoopstatus${d.changed === 1 ? "" : "sen"} bijgewerkt.`, error: false });
   }
   return (
@@ -32,6 +35,7 @@ export default function MoneybirdLink() {
         <div className="actions"><BusyButton className={"btn" + (state.active ? " alt" : "")} id="mbConnect" type="button" busyText={state.active ? "Bijwerken…" : "Aanzetten…"} onAction={connect}>{state.active ? "Statussen nu bijwerken" : "Automatische status aanzetten"}</BusyButton></div>
       )}
       {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
+      {details.length > 0 && <ul className="small" id="mbDetails">{details.map((d, i) => <li key={i}>{d}</li>)}</ul>}
     </section>
   );
 }

@@ -18,13 +18,33 @@ export async function syncEstimate(admin: Admin, proposalId: string, estimateId:
   return String(data ?? "");
 }
 
+const OUTCOME: Record<string, string> = {
+  bijgewerkt: "verkoopstatus bijgewerkt",
+  ongewijzigd: "al eerder verwerkt",
+  opgeslagen: "geen statuswijziging nodig",
+  "status blijft": "verkoopstatus blijft staan",
+  "lead niet actief": "lead is teruggezet",
+  "niet gevonden": "niet meer in Moneybird",
+  onbekend: "voorstel niet gevonden",
+};
+const STATE: Record<string, string> = { draft: "concept", open: "verstuurd", late: "verstuurd, verlopen", accepted: "geaccepteerd", rejected: "afgewezen", billed: "gefactureerd", archived: "gearchiveerd" };
+
 // Alle offertes die nog kunnen veranderen, eventueel alleen van één lead.
 export async function syncOpenEstimates(admin: Admin, leadId?: string) {
-  let query = admin.from("proposals").select("id, moneybird_estimate_id, moneybird_state").not("moneybird_estimate_id", "is", null);
+  let query = admin.from("proposals").select("id, moneybird_estimate_id, moneybird_state, lead:leads(values)").not("moneybird_estimate_id", "is", null);
   if (leadId) query = query.eq("lead_id", leadId);
   const { data } = await query;
   const open = (data ?? []).filter((p) => !FINAL.includes(String(p.moneybird_state ?? "")));
   let changed = 0;
-  for (const p of open) if ((await syncEstimate(admin, p.id, String(p.moneybird_estimate_id))) === "bijgewerkt") changed++;
-  return { checked: open.length, changed };
+  const details: string[] = [];
+  for (const p of open) {
+    const result = await syncEstimate(admin, p.id, String(p.moneybird_estimate_id));
+    if (result === "bijgewerkt") changed++;
+    const { data: after } = await admin.from("proposals").select("moneybird_state, lead:leads(sale_status)").eq("id", p.id).maybeSingle();
+    const name = String((p.lead as unknown as { values?: { organisatie?: string } } | null)?.values?.organisatie ?? "Onbekend");
+    const state = after?.moneybird_state ? STATE[after.moneybird_state] ?? after.moneybird_state : "onbekend";
+    const sale = (after?.lead as unknown as { sale_status?: string } | null)?.sale_status ?? "";
+    details.push(`${name}: Moneybird ${state}, ${OUTCOME[result] ?? result}${sale ? ` (nu ${sale})` : ""}`);
+  }
+  return { checked: open.length, changed, details };
 }
