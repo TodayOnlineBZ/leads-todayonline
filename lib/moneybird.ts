@@ -84,7 +84,7 @@ export async function createDraftEstimate(input: { contactId: string; company: s
     discount: input.discountPercent,
     first_due_interval: input.dueDays,
     prices_are_incl_tax: false,
-    pre_text: "Geachte {recipient.name},\n\nHierbij ontvangt u van ons de prijsopgave {document.estimate_id} voor de nieuwe website.\n\nPersoonlijke uitwerking, met onze aanpak en planning:\n" + input.documentUrl + "\n\nEerste opzet van uw nieuwe homepage:\n" + input.mvpUrl,
+    pre_text: "Geachte {recipient.name},\n\nHierbij ontvangt u van ons de prijsopgave {document.estimate_id} voor de nieuwe website.\n\nBekijk hier onze aanpak en planning, en de eerste opzet van uw nieuwe homepage:\n\n[Uitwerking](" + input.documentUrl + ")\n\n[Eerste opzet](" + input.mvpUrl + ")",
     post_text: "Betaling: 50% na akkoord op de offerte en 50% na livegang van de website.\n\nOptioneel onderhoud: € 35 per maand, exclusief btw, voor standaard hosting, domeinnaam, onderhoud en wijzigingen waar nodig. Bij grotere aanpassingen nemen we contact op om te kijken wat er precies moet gebeuren. Dit onderhoud is geen onderdeel van het totaalbedrag van deze offerte. Kiest u ervoor, dan wordt het jaarlijks vooraf gefactureerd en voor het eerst meegenomen op de tweede factuur na livegang.\n\nMet vriendelijke groet,\n\nBart Ziemerink\nTodayOnline",
     details_attributes: [{
       description: "Bouw van de website, oplevering en standaard SEO-optimalisatie",
