@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 
 export type SitePhoto = { url: string; mediaType: string; base64: string };
-export type SiteContent = { pages: number; text: string; colors: string[]; imageUrls: { url: string; alt: string }[]; logoUrl: string | null; photos: SitePhoto[] };
+export type SiteContent = { pages: number; text: string; colors: string[]; imageUrls: { url: string; alt: string }[]; logoUrl: string | null; photos: SitePhoto[]; unread?: boolean };
 
 const blocked = new BlockList();
 for (const [net, bits] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["224.0.0.0", 3]] as const) blocked.addSubnet(net, bits, "ipv4");

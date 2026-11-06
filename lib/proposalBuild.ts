@@ -35,7 +35,7 @@ export function buildPrompt2(v: Values, missing: string[]) {
     "NOG TE REGELEN",
     ...(missing.length ? missing.map((m) => `- ${m}`) : ["- Controleer de definitieve teksten met de klant."]),
     "- Controleer de rechten op alle foto's. Gebruik definitief beeld in eigen hosting, en laat de site niet afhankelijk zijn van bestanden op de oude website.", "",
-    "BESTANDEN", "Gebruik de bestanden uit dit bouwpakket: mvp.html, uitwerking.html, briefing.md, offerte.md en fotos.md.", "",
+    "BESTANDEN", "Gebruik de bestanden uit dit bouwpakket: mvp.html, uitwerking.html, briefing.md, offerte.md, fotos.md en bestanden.md. Aangeleverd materiaal in bestanden.md gaat voor op beeld van de oude website.", "",
     "Begin met een kort plan van de pagina's en wat je van de klant nodig hebt. Bouw daarna de site.",
   ].join("\n");
 }

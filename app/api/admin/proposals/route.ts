@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { after, NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
 import { costUsd, partCost, generateConcept, generateDocument, generateMvp, QUALITY, type Quality, siteNotes } from "@/lib/proposalAi";
+import { loadUploads, mergeUploads } from "@/lib/leadFiles";
+import { proposalBaseUrl } from "@/lib/proposalRoute";
 import { readSite } from "@/lib/siteContent";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster } from "@/lib/supabase/requireMaster";
@@ -36,9 +38,10 @@ export async function POST(request: NextRequest) {
   // Een lopende generatie kost al tegoed: start er niet per ongeluk een tweede.
   const { data: running } = await admin.from("proposals").select("id").eq("lead_id", lead.id).eq("status", "generating").gt("created_at", new Date(Date.now() - 6 * 60_000).toISOString()).limit(1);
   if (running?.length) return NextResponse.json({ error: "Er wordt al een voorstel gemaakt voor deze lead." }, { status: 409 });
+  const proposalSlug = `${slugify(values.organisatie ?? "")}-${randomBytes(8).toString("hex")}`;
   const { data: proposal, error } = await admin.from("proposals").insert({
     lead_id: lead.id,
-    slug: `${slugify(values.organisatie ?? "")}-${randomBytes(8).toString("hex")}`,
+    slug: proposalSlug,
     price_cents: priceCents,
     discount_percent: DISCOUNT_PERCENT,
     quality,
@@ -48,12 +51,15 @@ export async function POST(request: NextRequest) {
   }).select("id").single();
   if (error || !proposal) return NextResponse.json({ error: "Het voorstel kon niet worden gestart." }, { status: 500 });
 
+  const base = proposalBaseUrl(request);
   const { data: creator } = await admin.from("profiles").select("name").eq("id", master.id).maybeSingle();
   const creatorName = creator?.name ?? "Onbekend";
   after(async () => {
     try {
       // Eerst de korte tekst: mislukt die, dan is er geen tegoed aan de dure MVP besteed.
-      const site = await readSite(values.site);
+      // Allebei tegelijk, zodat dit niet ten koste gaat van de tijd voor de MVP.
+      const [read, uploads] = await Promise.all([readSite(values.site), loadUploads(lead.id, proposalSlug, base)]);
+      const site = mergeUploads(read, uploads);
       // De korte stappen lopen tegelijk, zodat de MVP genoeg van de tijdslimiet overhoudt.
       const [doc, concept] = await Promise.all([
         step("Uitwerking", () => generateDocument(values, site)),

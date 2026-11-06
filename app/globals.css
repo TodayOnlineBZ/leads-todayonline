@@ -276,3 +276,15 @@ a.btn { text-decoration: none; display: inline-block; }
 .build-box { margin-top: 8px; border-radius: 8px; padding: 14px; background: var(--tint); scroll-margin-top: 90px; }
 .build-box h4 { margin: 0 0 4px; font-size: 16px; }
 .build-box a.btn { text-decoration: none; }
+.dropzone { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border: 2px dashed var(--line); border-radius: 8px; padding: 16px; }
+.dropzone.over { border-color: var(--orange); background: var(--tint); }
+.dropzone label.btn { cursor: pointer; }
+.dropzone:focus-within label.btn { outline: 2px solid var(--orange); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.file-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 10px; min-width: 0; }
+.file-list img, .file-icon { width: 56px; height: 56px; flex: none; object-fit: cover; border-radius: 6px; background: var(--tint); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+.file-info { flex: 1 1 180px; min-width: 0; display: grid; overflow-wrap: anywhere; }
+.file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.file-actions select { width: auto; }
+.file-actions a { text-decoration: none; }

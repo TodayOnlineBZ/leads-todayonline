@@ -2,6 +2,7 @@ import { strToU8, zipSync } from "fflate";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
 import type { ProposalDocument } from "@/lib/proposalAi";
+import { BUCKET } from "@/lib/leadFiles";
 import { briefing, buildPrompt2, fileSlug, missingItems, photoUrls } from "@/lib/proposalBuild";
 import { documentPage } from "@/lib/proposalPages";
 import { proposalBaseUrl } from "@/lib/proposalRoute";
@@ -23,15 +24,19 @@ export async function GET(request: NextRequest) {
   const { data: notes } = await admin.from("lead_notes").select("author_name, body, created_at").eq("lead_id", p.lead_id);
   const eur = (cents: number) => `€ ${(Number(cents) / 100).toLocaleString("nl-NL", { minimumFractionDigits: 2 })}`;
   const photos = photoUrls(p.mvp_html);
+  // Grote bestanden passen niet in dit antwoord van de server: het pakket bevat tijdelijke downloadlinks.
+  const { data: uploaded } = await admin.from("lead_files").select("name, path, kind").eq("lead_id", p.lead_id).order("created_at");
+  const signed = uploaded?.length ? (await admin.storage.from(BUCKET).createSignedUrls(uploaded.map((f) => f.path), 7 * 86400)).data ?? [] : [];
   const origin = request.nextUrl.origin;
   const doc = documentPage({ values: lead.values, document: p.document as ProposalDocument, priceCents: Number(p.price_cents), discountPercent: Number(p.discount_percent), finalCents: Number(p.final_cents), createdAt: p.created_at, expiresAt: p.expires_at, mvpUrl: `${proposalBaseUrl(request)}/${p.slug}` }).replaceAll('src="/voorstel/', `src="${origin}/voorstel/`);
   const files: Record<string, string> = {
-    "LEESMIJ.md": [`# Bouwpakket ${lead.values.organisatie}`, "", `Gemaakt op: ${new Date().toISOString().slice(0, 10)}`, `Definitief voorstel: ${p.finalized_at.slice(0, 10)}`, `MVP-versie: ${p.current_mvp_version_id ?? "eerste versie"}`, `Uitwerking-versie: ${p.current_document_version_id ?? "eerste versie"}`, "Herkomst: leadsysteem TodayOnline. Dit pakket is intern en bevat klantgegevens.", "", "- mvp.html: de goedgekeurde richting", "- uitwerking.html: de toelichting voor de klant", "- briefing.md: bedrijfsinfo, antwoorden en notities", "- offerte.md: bedragen, status en Moneybird-link", "- fotos.md: gebruikte foto's met hun oorspronkelijke adres", "- doorbouwprompt.md: de opdracht om de site verder te bouwen", ""].join("\n"),
+    "LEESMIJ.md": [`# Bouwpakket ${lead.values.organisatie}`, "", `Gemaakt op: ${new Date().toISOString().slice(0, 10)}`, `Definitief voorstel: ${p.finalized_at.slice(0, 10)}`, `MVP-versie: ${p.current_mvp_version_id ?? "eerste versie"}`, `Uitwerking-versie: ${p.current_document_version_id ?? "eerste versie"}`, "Herkomst: leadsysteem TodayOnline. Dit pakket is intern en bevat klantgegevens.", "", "- mvp.html: de goedgekeurde richting", "- uitwerking.html: de toelichting voor de klant", "- briefing.md: bedrijfsinfo, antwoorden en notities", "- offerte.md: bedragen, status en Moneybird-link", "- fotos.md: gebruikte foto's met hun oorspronkelijke adres", "- bestanden.md: downloadlinks naar het materiaal dat de klant heeft aangeleverd", "- doorbouwprompt.md: de opdracht om de site verder te bouwen", ""].join("\n"),
     "mvp.html": p.mvp_html,
     "uitwerking.html": doc,
     "briefing.md": briefing(lead.values, notes ?? []),
     "offerte.md": ["# Offerte", "", `- Prijs vóór korting: ${eur(p.price_cents)} exclusief btw`, `- Korting: ${Number(p.discount_percent)}%`, `- Totaal: ${eur(p.final_cents)} exclusief btw`, `- Verkoopstatus: ${lead.sale_status}`, `- Moneybird: ${p.moneybird_url ?? "nog geen concept"}`, ""].join("\n"),
     "fotos.md": ["# Foto's in de MVP", "", "Controleer de rechten voordat een foto op de echte site komt.", "", ...(photos.length ? photos.map((u) => `- ${u}`) : ["Geen externe foto's gevonden."]), ""].join("\n"),
+    "bestanden.md": ["# Aangeleverde bestanden", "", "Deze links zijn 7 dagen geldig. Download daarna opnieuw een bouwpakket, of haal de bestanden op bij Kwalificatie.", "", ...(uploaded?.length ? uploaded.map((f, i) => `- ${f.kind}: [${f.name}](${signed[i]?.signedUrl ?? ""})`) : ["Geen bestanden aangeleverd."]), ""].join("\n"),
     "doorbouwprompt.md": prompt + "\n",
   };
   const zip = zipSync(Object.fromEntries(Object.entries(files).map(([name, text]) => [name, strToU8(text)])));

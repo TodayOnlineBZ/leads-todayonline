@@ -1,6 +1,8 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import type { Values } from "@/lib/domain";
 import { generateConcept, generateDocument, generateMvp, partCost, QUALITY, type Quality, siteNotes } from "@/lib/proposalAi";
+import { loadUploads, mergeUploads } from "@/lib/leadFiles";
+import { proposalBaseUrl } from "@/lib/proposalRoute";
 import { readSite } from "@/lib/siteContent";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster } from "@/lib/supabase/requireMaster";
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
   if (wish.length > 1000) return fail(400, "Je wens mag maximaal 1000 tekens lang zijn.");
   const quality = (part === "mvp" && body.quality in QUALITY ? body.quality : "standaard") as Quality;
   const admin = createAdminClient();
-  const { data: p } = await admin.from("proposals").select("id, lead_id, status, finalized_at, moneybird_status, mvp_html, document, lead:leads(values)").eq("id", String(body.id ?? "")).maybeSingle();
+  const { data: p } = await admin.from("proposals").select("id, lead_id, slug, status, finalized_at, moneybird_status, mvp_html, document, lead:leads(values)").eq("id", String(body.id ?? "")).maybeSingle();
   if (!p || p.status !== "ready") return fail(404, "Dit voorstel is niet beschikbaar.");
   if (p.finalized_at || p.moneybird_status) return fail(409, LOCKED);
 
@@ -38,10 +40,12 @@ export async function POST(request: NextRequest) {
   const { data: version, error } = await admin.from("proposal_versions").insert({ proposal_id: p.id, part, wish: wish || null, quality: part === "mvp" ? quality : null, created_by_name: name }).select("id").single();
   if (error || !version) return fail(409, "Dit onderdeel wordt al gemaakt.");
 
+  const base = proposalBaseUrl(request);
   after(async () => {
     try {
       const values = (p.lead as unknown as { values: Values }).values;
-      const site = await readSite(values.site);
+      const [read, uploads] = await Promise.all([readSite(values.site), loadUploads(p.lead_id, p.slug, base)]);
+      const site = mergeUploads(read, uploads);
       const change: Record<string, unknown> = {};
       const result: Record<string, unknown> = {};
       if (part === "mvp") {

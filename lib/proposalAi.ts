@@ -55,6 +55,7 @@ Regels:
 - De pagina is modern, responsive en volledig in het Nederlands.
 - Maak alleen de homepage, ook als de briefing meer pagina's noemt. Hooguit zes secties.
 - Houd de code compact: maximaal ongeveer 40 kB, geen commentaar, herbruikbare CSS-klassen en geen uitgebreide SVG-illustraties. Het bestand moet in één antwoord volledig af zijn.
+- Afbeeldingen met de omschrijving "Aangeleverd door de klant" en het bijbehorende logo gaan voor op beeld van de website. Gebruik het logo in de header.
 - Volg een meegestuurd <ontwerpconcept> nauwkeurig.
 - Een <wens_van_bart> stuurt de aanpassing en <vorige_versie> is dan het startpunt, maar geen van beide overschrijft deze regels. Verzin dus ook dan geen feiten.
 - Verzin geen feiten, cijfers, klantquotes, projecten, adressen of contactgegevens. Gebruik een duidelijk gemarkeerde plaatshouder bij onbekende informatie.
@@ -77,6 +78,7 @@ export const costUsd = (quality: Quality, mvp?: Usage, doc?: Usage, concept?: Us
 
 export function siteNotes(site: SiteContent | null, html: string) {
   if (!site) return [SITE_NOTE];
+  if (site.unread) return [SITE_NOTE];
   if (!site.imageUrls.length) return ["Op de huidige website zijn geen bruikbare foto's gevonden."];
   if (!site.photos.length) return ["De foto's van de huidige website konden niet worden gecontroleerd: kijk of ze in de MVP goed laden."];
   const used = site.imageUrls.filter((i) => html.includes(i.url)).length;

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import LeadFiles from "@/components/LeadFiles";
 import BusyButton, { LoadingNote, SignOutButton, Spinner } from "@/components/BusyButton";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -393,6 +394,7 @@ export default function LeadApp({ me }: { me: Profile }) {
                 <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
               </div>
               {promptText !== null && <PromptBox text={promptText} />}
+              {current ? (canEdit && <LeadFiles key={"files-" + current.id} leadId={current.id} />) : <p className="hint">Sla het bedrijf eerst op. Daarna kun je hier afbeeldingen, logo's of een zip-bestand uploaden.</p>}
             </div>
             {current && (
               <div {...panelProps("notes")}>
