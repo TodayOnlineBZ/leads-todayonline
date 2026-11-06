@@ -45,7 +45,8 @@ const inTime = <T,>(work: Promise<T>, fallback: T, ms: number) => Promise.race([
 export async function loadUploads(leadId: string, slug: string, base: string) {
   const admin = createAdminClient();
   const { data } = await admin.from("lead_files").select("id, name, path, mime_type, kind, size_bytes").eq("lead_id", leadId).order("created_at");
-  const images = ((data ?? []) as Row[]).filter((f) => f.mime_type.startsWith("image/"));
+  // Foto's uit een eigen MVP-bestand horen bij dat bestand, en niet bij het beeld voor Claude.
+  const images = ((data ?? []) as Row[]).filter((f) => f.mime_type.startsWith("image/") && f.kind !== "overig");
   const url = (f: Row) => `${base}/${slug}/bestand/${f.id}`;
   const forClaude = images.filter((f) => f.kind !== "logo" && f.mime_type !== "image/svg+xml" && f.size_bytes <= 3_500_000 && f.size_bytes >= 2000).slice(0, 8);
   const photos = await inTime(Promise.all(forClaude.map(async (f): Promise<SitePhoto | null> => {

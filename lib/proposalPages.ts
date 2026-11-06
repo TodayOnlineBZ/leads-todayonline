@@ -12,6 +12,12 @@ export const mvpHeaders = {
   ...COMMON_HEADERS,
   "Content-Security-Policy": "sandbox allow-scripts allow-popups; default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: https:; script-src 'unsafe-inline'; form-action 'none'; base-uri 'none'",
 };
+// Een eigen bestand mag bekende bibliotheken laden. Ook dan blijft het volledig afgeschermd van de leadtool.
+const CDN = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://cdn.tailwindcss.com https://code.jquery.com";
+export const ownMvpHeaders = {
+  ...COMMON_HEADERS,
+  "Content-Security-Policy": `sandbox allow-scripts allow-popups; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${CDN}; style-src 'unsafe-inline' https://fonts.googleapis.com ${CDN}; font-src https://fonts.gstatic.com data: ${CDN}; img-src data: blob: https:; media-src data: blob: https:; connect-src ${CDN}; form-action 'none'; base-uri 'none'`,
+};
 export const pageHeaders = {
   ...COMMON_HEADERS,
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; form-action 'none'; base-uri 'none'",

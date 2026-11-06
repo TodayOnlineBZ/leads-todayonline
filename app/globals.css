@@ -288,3 +288,7 @@ a.btn { text-decoration: none; display: inline-block; }
 .file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .file-actions select { width: auto; }
 .file-actions a { text-decoration: none; }
+label.btn { cursor: pointer; display: inline-block; }
+label.btn.is-disabled { opacity: .55; cursor: not-allowed; }
+.sr-only:focus-visible + *, label.btn:has(+ .sr-only:focus-visible) { outline: 2px solid var(--orange); outline-offset: 2px; }
+.own-mvp { align-items: center; }

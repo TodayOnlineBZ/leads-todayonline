@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import LeadFiles from "@/components/LeadFiles";
+import { prepareOwnMvp } from "@/components/ownMvp";
 import BusyButton, { LoadingNote, SignOutButton, Spinner } from "@/components/BusyButton";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -394,7 +395,7 @@ export default function LeadApp({ me }: { me: Profile }) {
                 <button className="btn alt" type="button" onClick={newLead}>Nieuw gesprek</button>
               </div>
               {promptText !== null && <PromptBox text={promptText} />}
-              {current ? (canEdit && <LeadFiles key={"files-" + current.id} leadId={current.id} />) : <p className="hint">Sla het bedrijf eerst op. Daarna kun je hier afbeeldingen, logo's of een zip-bestand uploaden.</p>}
+              {current ? (canEdit && <LeadFiles key={"files-" + current.id} leadId={current.id} active={leadTab === "kwalificatie"} />) : <p className="hint">Sla het bedrijf eerst op. Daarna kun je hier afbeeldingen, logo's of een zip-bestand uploaden.</p>}
             </div>
             {current && (
               <div {...panelProps("notes")}>
@@ -634,7 +635,7 @@ function SalePanel({ lead, master, reload }: { lead: Lead; master: boolean; relo
 }
 
 function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEvents: ProposalEvent[] }) {
-  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", regenerated_mvp: "MVP opnieuw gemaakt", regenerated_document: "Uitwerking opnieuw gemaakt", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
+  const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", regenerated_mvp: "Nieuwe MVP-versie", regenerated_document: "Uitwerking opnieuw gemaakt", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
   const rows = [
     ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
     ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
@@ -981,7 +982,7 @@ function WebsiteLink({ value }: { value: string | null }) {
   return <a className="site-link" href={link.href} target="_blank" rel="noopener noreferrer" aria-label={link.label + " (opent in een nieuw tabblad)"}>{link.label}</a>;
 }
 
-const QUALITY_LABEL: Record<string, string> = { standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
+const QUALITY_LABEL: Record<string, string> = { eigen: "Eigen bestand", standaard: "Stand: standaard", concept: "Stand: met ontwerpconcept", opus: "Stand: met ontwerpconcept en sterker model" };
 type VersionPart = "mvp" | "document";
 type Version = { id: string; proposal_id: string; part: VersionPart; status: string; wish: string | null; quality: string | null; input_tokens: number; output_tokens: number; cost_usd: number | null; notes: string[]; error: string | null; created_by_name: string; created_at: string };
 const PART_NAME: Record<VersionPart, string> = { mvp: "MVP", document: "Uitwerking" };
@@ -998,6 +999,8 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
   const [busy, setBusy] = useState(false);
   const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
   const [quality, setQuality] = useState("standaard");
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [uploadStep, setUploadStep] = useState("");
   const [incomplete, setIncomplete] = useState<{ id: string; missing: string[] } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const wasGenerating = useRef(false);
@@ -1076,6 +1079,34 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
     setMessage(res.ok ? { text: data.warning ? `Het concept staat in Moneybird. Let op: ${data.warning}` : "Het concept staat in Moneybird. Er is nog niets verstuurd.", error: false } : { text: String(data.error ?? "Het concept kon niet worden gemaakt."), error: true });
     await fetchProposals();
   }
+  async function uploadOwn(file: File, proposalId: string | null) {
+    if (uploading) return;
+    let cents: number | null = null;
+    if (!proposalId) {
+      cents = parseEuroToCents(price);
+      if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul eerst de prijs vóór korting in, bijvoorbeeld 2500.", error: true }); return; }
+    }
+    setUploading(proposalId ?? "new");
+    setMessage({ text: "", error: false });
+    try {
+      setUploadStep("Bestand controleren");
+      const { html, moved } = await prepareOwnMvp(file, lead.id, supabase, setUploadStep);
+      setUploadStep("Bestand opslaan");
+      const params = new URLSearchParams({ name: file.name, ...(proposalId ? { id: proposalId } : { leadId: lead.id, priceCents: String(cents) }) });
+      const res = await apiFetch(`/api/admin/proposals/own-mvp?${params}`, { method: "POST", headers: { "Content-Type": "text/html" }, body: html });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMessage({ text: String(data.error ?? "Uploaden is niet gelukt."), error: true }); return; }
+      if (!proposalId) wasGenerating.current = true;
+      const warnings = (data.notes ?? []) as string[];
+      setMessage({ text: [proposalId ? "Je eigen MVP staat nu online bij dit voorstel. Open hem om te controleren of alles werkt." : "Je eigen MVP is opgeslagen. De uitwerking wordt nu gemaakt.", moved ? `${moved} ingebouwde foto's staan nu bij de bestanden.` : "", ...warnings].filter(Boolean).join(" "), error: warnings.length > 0 });
+      await fetchProposals();
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : "Uploaden is niet gelukt.", error: true });
+    } finally {
+      setUploading(null);
+      setUploadStep("");
+    }
+  }
   async function startRegen() {
     if (!regen) return;
     const res = await apiFetch("/api/admin/proposals/regenerate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(regen) });
@@ -1113,6 +1144,12 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
         <option value="standaard">Standaard</option><option value="concept">Met ontwerpconcept</option><option value="opus">Met ontwerpconcept en sterker model</option>
       </select><p className="hint">Hogere standen kosten meer tegoed en duren langer. Hieronder zie je per voorstel de kosten, zodat je kunt vergelijken.</p></div>
       <div className="actions"><BusyButton className="btn" id="createProposal" type="button" busy={busy || generating} busyText="Voorstel wordt gemaakt" onClick={() => void create()}>Voorstel maken</BusyButton></div>
+      <div className="actions own-mvp">
+        <label className={"btn alt" + (uploading || generating ? " is-disabled" : "")} htmlFor="ownMvpNew">Voorstel maken met eigen MVP</label>
+        <input id="ownMvpNew" className="sr-only" type="file" accept=".html,.htm" disabled={!!uploading || generating} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadOwn(f, null); }} />
+        <span className="small">Gebruik je geëxporteerde artifact als MVP. Claude maakt dan alleen de uitwerking.</span>
+      </div>
+      {uploading && <p className="small proposal-running" id="ownMvpProgress" role="status"><Spinner />{uploadStep}</p>}
       {message.text && <p className={"status" + (message.error ? " err" : "")} role="status">{message.text}</p>}
       {!loaded && <LoadingNote text="Voorstellen laden" />}
       {proposals.length > 1 && <p className="hint">Geschiedenis, nieuwste bovenaan.</p>}
@@ -1163,7 +1200,13 @@ function ProposalPanel({ lead, onData, onFix }: { lead: Lead; onData: (data: Pro
                         <div className="version-head">
                           <b>{PART_NAME[part]}</b>
                           {running ? <span className="small proposal-running" role="status" data-running={part}><Spinner />Nieuwe versie wordt gemaakt. De vorige blijft online.</span>
-                            : !fixed && !open && <button className="btn alt small" type="button" data-regen={part} onClick={() => setRegen({ id: p.id, part, wish: "", quality: "standaard" })}>{PART_NAME[part]} opnieuw maken</button>}
+                            : !fixed && !open && <span className="edit-bar">
+                              <button className="btn alt small" type="button" data-regen={part} onClick={() => setRegen({ id: p.id, part, wish: "", quality: "standaard" })}>{PART_NAME[part]} opnieuw maken</button>
+                              {part === "mvp" && <>
+                                <label className={"btn alt small" + (uploading ? " is-disabled" : "")} htmlFor={"ownMvp" + p.id}>Eigen MVP uploaden</label>
+                                <input id={"ownMvp" + p.id} className="sr-only" type="file" accept=".html,.htm" disabled={!!uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadOwn(f, p.id); }} />
+                              </>}
+                            </span>}
                         </div>
                         {open && !running && regen && (
                           <div className="confirm-box regen-form">

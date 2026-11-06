@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { mvpHeaders, pageHeaders, statusPage, withMvpBanner } from "@/lib/proposalPages";
+import { mvpHeaders, ownMvpHeaders, pageHeaders, statusPage, withMvpBanner } from "@/lib/proposalPages";
 import { isLive, loadProposal } from "@/lib/proposalRoute";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -11,5 +11,6 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const proposal = await loadProposal(slug);
   if (!proposal || !isLive(proposal) || !proposal.mvp_html) return new Response(statusPage(...GONE), { status: proposal ? 410 : 404, headers: pageHeaders });
   await createAdminClient().from("proposals").update({ view_count: proposal.view_count + 1, last_viewed_at: new Date().toISOString() }).eq("id", proposal.id);
-  return new Response(withMvpBanner(proposal.mvp_html, proposal.expires_at), { headers: mvpHeaders });
+  const current = proposal.current_mvp_version_id ? await createAdminClient().from("proposal_versions").select("quality").eq("id", proposal.current_mvp_version_id).maybeSingle() : null;
+  return new Response(withMvpBanner(proposal.mvp_html, proposal.expires_at), { headers: current?.data?.quality === "eigen" ? ownMvpHeaders : mvpHeaders });
 }

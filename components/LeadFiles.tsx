@@ -11,7 +11,7 @@ const ACCEPT = Object.keys(TYPES).map((e) => "." + e).join(",");
 const size = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(n / 1024))} kB`);
 const cleanPath = (name: string) => name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]/g, "_").slice(-80);
 
-export default function LeadFiles({ leadId }: { leadId: string }) {
+export default function LeadFiles({ leadId, active }: { leadId: string; active: boolean }) {
   const supabase = useMemo(() => createClient(), []);
   const [files, setFiles] = useState<LeadFile[] | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -31,7 +31,8 @@ export default function LeadFiles({ leadId }: { leadId: string }) {
       setLinks(Object.fromEntries((signed.data ?? []).flatMap((s, i) => (s.signedUrl ? [[list[i].id, s.signedUrl]] : []))));
     }
   }, [supabase, leadId]);
-  useEffect(() => { void load(); }, [load]);
+  // Ook verversen bij het openen van de tab: een eigen MVP kan intussen foto's hebben toegevoegd.
+  useEffect(() => { if (active) void load(); }, [load, active]);
 
   async function upload(list: FileList | File[]) {
     if (progress) return;
@@ -98,7 +99,7 @@ export default function LeadFiles({ leadId }: { leadId: string }) {
                 : <span className="file-icon" aria-hidden="true">{f.kind === "zip" ? "ZIP" : "PDF"}</span>}
               <span className="file-info"><b>{f.name}</b><span className="small">{size(f.size_bytes)} · {f.uploaded_by_name}</span></span>
               <span className="file-actions">
-                {f.mime_type.startsWith("image/") && <select aria-label={"Soort voor " + f.name} value={f.kind} onChange={(e) => void setKind(f, e.target.value)}><option value="foto">Foto</option><option value="logo">Logo</option></select>}
+                {f.mime_type.startsWith("image/") && f.kind !== "overig" && <select aria-label={"Soort voor " + f.name} value={f.kind} onChange={(e) => void setKind(f, e.target.value)}><option value="foto">Foto</option><option value="logo">Logo</option></select>}
                 {links[f.id] && <a className="btn alt small" href={links[f.id]} target="_blank" rel="noopener">Openen</a>}
                 <BusyButton className="btn alt small" type="button" busyText="Verwijderen…" onAction={() => remove(f)}>{confirm === f.id ? "Klik nogmaals" : "Verwijderen"}</BusyButton>
               </span>
