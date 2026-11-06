@@ -14,6 +14,8 @@ async function mb<T>(path: string, init?: { method: string; body: unknown }): Pr
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) {
+    const scope = res.status === 401 || res.status === 403 ? await res.clone().text().then((t) => /no access to (\w+)/i.exec(t)?.[1] ?? "").catch(() => "") : "";
+    if (scope) throw Object.assign(new Error(`Het Moneybird-token mist het recht "${scope}". Maak in Moneybird een token met dat recht erbij en zet het in Vercel.`), { status: res.status });
     const label = res.status === 401 ? "Het Moneybird-token is ongeldig." : res.status === 403 ? "Het Moneybird-token heeft niet genoeg rechten." : res.status === 429 ? "Moneybird krijgt nu te veel verzoeken. Probeer het zo opnieuw." : `Moneybird gaf status ${res.status}.`;
     const detail = await res.json().then((d) => (d?.error ? JSON.stringify(d.error).slice(0, 200) : "")).catch(() => "");
     throw Object.assign(new Error(detail ? `${label} ${detail}` : label), { status: res.status });
