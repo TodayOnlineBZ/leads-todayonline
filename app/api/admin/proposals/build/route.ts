@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     "mvp.html": p.mvp_html,
     "uitwerking.html": doc,
     "briefing.md": briefing(lead.values, notes ?? []),
-    "offerte.md": ["# Offerte", "", `- Prijs vóór korting: ${eur(p.price_cents)} exclusief btw`, `- Korting: ${Number(p.discount_percent)}%`, `- Totaal: ${eur(p.final_cents)} exclusief btw`, `- Verkoopstatus: ${lead.sale_status}`, `- Moneybird: ${p.moneybird_url ?? "nog geen concept"}`, ""].join("\n"),
+    "offerte.md": ["# Offerte", "", `- Prijs vóór korting: ${eur(p.price_cents)} exclusief btw`, `- Korting: ${Number(p.discount_percent) > 0 ? `${Number(p.discount_percent)}%` : "geen"}`, `- Totaal: ${eur(p.final_cents)} exclusief btw`, `- Verkoopstatus: ${lead.sale_status}`, `- Moneybird: ${p.moneybird_url ?? "nog geen concept"}`, ""].join("\n"),
     "fotos.md": ["# Foto's in de MVP", "", "Controleer de rechten voordat een foto op de echte site komt.", "", ...(photos.length ? photos.map((u) => `- ${u}`) : ["Geen externe foto's gevonden."]), ""].join("\n"),
     "bestanden.md": ["# Aangeleverde bestanden", "", "Deze links zijn 7 dagen geldig. Download daarna opnieuw een bouwpakket, of haal de bestanden op bij Kwalificatie.", "", ...(uploaded?.length ? uploaded.map((f, i) => `- ${f.kind}: [${f.name}](${signed[i]?.signedUrl ?? ""})`) : ["Geen bestanden aangeleverd."]), ""].join("\n"),
     "doorbouwprompt.md": prompt + "\n",

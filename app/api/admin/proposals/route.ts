@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
   const priceCents = Number(body.priceCents);
   if (!Number.isSafeInteger(priceCents) || priceCents <= 0) return NextResponse.json({ error: "Vul een geldige prijs in." }, { status: 400 });
   if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "De Claude API-sleutel ontbreekt nog in Vercel." }, { status: 400 });
+  const discount = body.discount === false ? 0 : DISCOUNT_PERCENT;
   const quality = (body.quality in QUALITY ? body.quality : "standaard") as Quality;
   const admin = createAdminClient();
   const { data: lead } = await admin.from("leads").select("id, values, archived_at").eq("id", String(body.leadId ?? "")).maybeSingle();
@@ -43,9 +44,9 @@ export async function POST(request: NextRequest) {
     lead_id: lead.id,
     slug: proposalSlug,
     price_cents: priceCents,
-    discount_percent: DISCOUNT_PERCENT,
+    discount_percent: discount,
     quality,
-    final_cents: Math.round((priceCents * (100 - DISCOUNT_PERCENT)) / 100),
+    final_cents: Math.round((priceCents * (100 - discount)) / 100),
     expires_at: new Date(Date.now() + VALID_DAYS * DAY).toISOString(),
     created_by: master.id,
   }).select("id").single();

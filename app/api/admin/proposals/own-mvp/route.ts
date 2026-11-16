@@ -60,9 +60,10 @@ export async function POST(request: NextRequest) {
   const { data: lead } = await admin.from("leads").select("id, values, archived_at").eq("id", q.get("leadId") ?? "").maybeSingle();
   if (!lead || lead.archived_at) return fail(404, "Deze lead bestaat niet of is teruggezet.");
   const values = lead.values as Values;
+  const discount = q.get("discount") === "0" ? 0 : 10;
   const slug = `${fileSlug(values.organisatie)}-${randomBytes(8).toString("hex")}`;
   const html = fill(slug);
-  const { data: proposal, error } = await admin.from("proposals").insert({ lead_id: lead.id, slug, price_cents: priceCents, discount_percent: 10, quality: "eigen", final_cents: Math.round(priceCents * 0.9), mvp_html: html, expires_at: new Date(Date.now() + 14 * DAY).toISOString(), created_by: master.id }).select("id").single();
+  const { data: proposal, error } = await admin.from("proposals").insert({ lead_id: lead.id, slug, price_cents: priceCents, discount_percent: discount, quality: "eigen", final_cents: Math.round((priceCents * (100 - discount)) / 100), mvp_html: html, expires_at: new Date(Date.now() + 14 * DAY).toISOString(), created_by: master.id }).select("id").single();
   if (error || !proposal) return fail(500, "Het voorstel kon niet worden gestart.");
   after(async () => {
     try {

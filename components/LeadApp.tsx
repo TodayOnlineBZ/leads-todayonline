@@ -639,7 +639,7 @@ function Timeline({ events, proposalEvents }: { events: SaleEvent[]; proposalEve
   const PROPOSAL_TEXT: Record<string, string> = { created: "Voorstel gemaakt", finalized: "Voorstel definitief gemaakt", unfinalized: "Definitief voorstel vervangen", moneybird_draft: "Moneybird-concept gemaakt", moneybird_sent: "Offerte verstuurd vanuit Moneybird", moneybird_accepted: "Offerte geaccepteerd in Moneybird", moneybird_rejected: "Offerte afgewezen in Moneybird", regenerated_mvp: "Nieuwe MVP-versie", regenerated_document: "Nieuwe uitwerking-versie", restored_mvp: "Eerdere MVP teruggezet", restored_document: "Eerdere uitwerking teruggezet" };
   const rows = [
     ...events.map((e) => ({ id: e.id, at: e.created_at, by: e.changed_by_name, text: `${e.new_owner_name ? `Toegewezen: ${e.old_owner_name} → ${e.new_owner_name}` : e.old_status !== e.new_status ? `${e.old_status} → ${e.new_status}` : "Offerte gewijzigd"}${e.old_amount_cents !== e.new_amount_cents ? ` · ${formatEuro(e.old_amount_cents)} → ${formatEuro(e.new_amount_cents)}` : ""}${e.old_commission_cents !== e.new_commission_cents ? ` · commissie sales ${formatEuro(e.old_commission_cents)} → ${formatEuro(e.new_commission_cents)}` : ""}` })),
-    ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)} na korting` : ""}` })),
+    ...proposalEvents.map((e) => ({ id: e.id, at: e.created_at, by: e.actor_name, text: `${PROPOSAL_TEXT[e.kind] ?? e.kind}${e.final_cents != null ? ` · ${formatEuro(e.final_cents)}${e.price_cents != null && e.price_cents !== e.final_cents ? " na korting" : ""}` : ""}` })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
     <section className="notes" aria-labelledby="timelineTitle">
@@ -990,13 +990,14 @@ type Version = { id: string; proposal_id: string; part: VersionPart; status: str
 const PART_NAME: Record<VersionPart, string> = { mvp: "MVP", document: "Uitwerking" };
 const versionRunning = (v: Version) => v.status === "generating" && Date.now() - new Date(v.created_at).getTime() < 6 * 60_000;
 const usd = (n: number) => `$${n.toFixed(2).replace(".", ",")}`;
-type Proposal = { id: string; slug: string; status: string; price_cents: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null; moneybird_state: string | null; moneybird_state_at: string | null; current_mvp_version_id: string | null; current_document_version_id: string | null };
+type Proposal = { id: string; slug: string; status: string; price_cents: number; discount_percent: number; final_cents: number; error: string | null; input_tokens: number; output_tokens: number; expires_at: string; disabled_at: string | null; last_viewed_at: string | null; view_count: number; created_at: string; document: { open_punten?: string[] } | null; finalized_at: string | null; finalized_by_name: string | null; quality: string; cost_usd: number | null; moneybird_status: string | null; moneybird_url: string | null; moneybird_state: string | null; moneybird_state_at: string | null; current_mvp_version_id: string | null; current_document_version_id: string | null };
 const PROPOSAL_BASE = process.env.NEXT_PUBLIC_PROPOSAL_BASE_URL ?? "/v";
 
 function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData: (data: ProposalData) => void; onFix: () => void; reloadLead: () => Promise<void> }) {
   const supabase = useMemo(() => createClient(), []);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [price, setPrice] = useState(centsToInput(lead.quote_amount_cents));
+  const [discount, setDiscount] = useState(true);
   const [message, setMessage] = useState({ text: "", error: false });
   const [busy, setBusy] = useState(false);
   const [confirmFinal, setConfirmFinal] = useState<string | null>(null);
@@ -1011,7 +1012,7 @@ function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData
   const [regen, setRegen] = useState<{ id: string; part: VersionPart; wish: string; quality: string } | null>(null);
   const runningVersions = useRef(new Set<string>());
   const fetchProposals = useCallback(async () => {
-    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url, moneybird_state, moneybird_state_at, current_mvp_version_id, current_document_version_id").eq("lead_id", lead.id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("proposals").select("id, slug, status, price_cents, discount_percent, final_cents, error, input_tokens, output_tokens, expires_at, disabled_at, last_viewed_at, view_count, created_at, document, finalized_at, finalized_by_name, quality, cost_usd, moneybird_status, moneybird_url, moneybird_state, moneybird_state_at, current_mvp_version_id, current_document_version_id").eq("lead_id", lead.id).order("created_at", { ascending: false });
     setLoaded(true);
     if (error || !data) return;
     setProposals(data as Proposal[]);
@@ -1065,9 +1066,9 @@ function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData
   };
   async function create() {
     const cents = parseEuroToCents(price);
-    if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul de prijs vóór korting in, bijvoorbeeld 2500.", error: true }); return; }
+    if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul de prijs in, bijvoorbeeld 2500.", error: true }); return; }
     setBusy(true);
-    const err = await call("POST", { leadId: lead.id, priceCents: cents, quality });
+    const err = await call("POST", { leadId: lead.id, priceCents: cents, quality, discount });
     // Ook een voorstel dat meteen mislukt, moet een resultaatmelding geven.
     if (!err) wasGenerating.current = true;
     setBusy(false);
@@ -1095,7 +1096,7 @@ function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData
     let cents: number | null = null;
     if (!proposalId) {
       cents = parseEuroToCents(price);
-      if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul eerst de prijs vóór korting in, bijvoorbeeld 2500.", error: true }); return; }
+      if (cents === null || Number.isNaN(cents)) { setMessage({ text: "Vul eerst de prijs in, bijvoorbeeld 2500.", error: true }); return; }
     }
     setUploading(proposalId ?? "new");
     setMessage({ text: "", error: false });
@@ -1103,7 +1104,7 @@ function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData
       setUploadStep("Bestand controleren");
       const { html, moved } = await prepareOwnMvp(file, lead.id, supabase, setUploadStep);
       setUploadStep("Bestand opslaan");
-      const params = new URLSearchParams({ name: file.name, ...(proposalId ? { id: proposalId } : { leadId: lead.id, priceCents: String(cents) }) });
+      const params = new URLSearchParams({ name: file.name, ...(proposalId ? { id: proposalId } : { leadId: lead.id, priceCents: String(cents), discount: discount ? "1" : "0" }) });
       const res = await apiFetch(`/api/admin/proposals/own-mvp?${params}`, { method: "POST", headers: { "Content-Type": "text/html" }, body: html });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setMessage({ text: String(data.error ?? "Uploaden is niet gelukt."), error: true }); return; }
@@ -1148,8 +1149,9 @@ function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData
     <section className="notes" aria-labelledby="proposalTitle">
       <h3 id="proposalTitle">Voorstel</h3>
       <p className="hint">Maakt een MVP en een persoonlijke uitwerking. Er wordt nog niets naar de klant verstuurd. Elk voorstel gebruikt Claude-tegoed.</p>
-      <div className="q"><label htmlFor="proposalPrice">Prijs vóór korting, exclusief btw</label><input id="proposalPrice" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2500" value={price} onChange={(e) => setPrice(e.target.value)} />
-        {preview !== null && !Number.isNaN(preview) && <p className="hint">Klant betaalt {formatEuro(Math.round(preview * 0.9))} na 10% korting.</p>}
+      <div className="q"><label htmlFor="proposalPrice">{discount ? "Prijs vóór korting, exclusief btw" : "Prijs, exclusief btw"}</label><input id="proposalPrice" inputMode="decimal" autoComplete="off" placeholder="Bijvoorbeeld 2500" value={price} onChange={(e) => setPrice(e.target.value)} />
+        <label className="check-line"><input id="proposalDiscount" type="checkbox" checked={discount} onChange={(e) => setDiscount(e.target.checked)} /> 10% korting toepassen</label>
+        {preview !== null && !Number.isNaN(preview) && <p className="hint" id="proposalPriceHint">{discount ? `Klant betaalt ${formatEuro(Math.round(preview * 0.9))} na 10% korting.` : `Klant betaalt ${formatEuro(preview)}, zonder korting.`}</p>}
       </div>
       <div className="q"><label htmlFor="proposalQuality">Kwaliteitsstand</label><select id="proposalQuality" value={quality} onChange={(e) => setQuality(e.target.value)}>
         <option value="standaard">Standaard</option><option value="concept">Met ontwerpconcept</option><option value="opus">Met ontwerpconcept en sterker model</option>
@@ -1178,7 +1180,7 @@ function ProposalPanel({ lead, onData, onFix, reloadLead }: { lead: Lead; onData
             {p.status === "failed" && <span className="small">{p.error}</span>}
             {p.status === "ready" && (
               <>
-                <span className="small">Prijs {formatEuro(p.price_cents)}, na korting {formatEuro(p.final_cents)}. Geldig tot {nlDate(p.expires_at)}. MVP {p.view_count}× geopend, ook door jou. {Number(p.input_tokens).toLocaleString("nl-NL")} tokens invoer, {Number(p.output_tokens).toLocaleString("nl-NL")} uitvoer. {QUALITY_LABEL[p.quality] ?? p.quality}{p.cost_usd != null ? `, ongeveer $${Number(p.cost_usd).toFixed(2).replace(".", ",")}` : ""}.</span>
+                <span className="small">{Number(p.discount_percent) > 0 ? `Prijs ${formatEuro(p.price_cents)}, na ${Number(p.discount_percent)}% korting ${formatEuro(p.final_cents)}.` : `Prijs ${formatEuro(p.final_cents)}, zonder korting.`} Geldig tot {nlDate(p.expires_at)}. MVP {p.view_count}× geopend, ook door jou. {Number(p.input_tokens).toLocaleString("nl-NL")} tokens invoer, {Number(p.output_tokens).toLocaleString("nl-NL")} uitvoer. {QUALITY_LABEL[p.quality] ?? p.quality}{p.cost_usd != null ? `, ongeveer $${Number(p.cost_usd).toFixed(2).replace(".", ",")}` : ""}.</span>
                 {own.length > 2 && <span className="small" id={"total-" + p.id}>Totaal met nieuwe versies: ongeveer {usd(totalCost)}.</span>}
                 {!!p.document?.open_punten?.length && <div className="warn-box"><b>Controleer dit:</b><ul className="steps-2fa">{p.document.open_punten.map((o, i) => <li key={i}>{o}</li>)}</ul></div>}
                 <div className="actions">

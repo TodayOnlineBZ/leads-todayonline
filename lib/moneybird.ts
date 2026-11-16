@@ -83,7 +83,7 @@ export async function createDraftEstimate(input: { contactId: string; company: s
     contact_id: input.contactId,
     reference: `Nieuwe website ${input.company}`.slice(0, 200),
     language: "nl",
-    discount: input.discountPercent,
+    ...(input.discountPercent > 0 ? { discount: input.discountPercent } : {}),
     first_due_interval: input.dueDays,
     prices_are_incl_tax: false,
     pre_text: "Geachte {recipient.name},\n\nHierbij ontvangt u van ons de prijsopgave {document.estimate_id} voor de nieuwe website.\n\nBekijk hier onze aanpak en planning, en de eerste opzet van uw nieuwe homepage:\n\n[Uitwerking](" + input.documentUrl + ")\n\n[Eerste opzet](" + input.mvpUrl + ")",
